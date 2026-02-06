@@ -1,0 +1,4 @@
+# Testing environment configuration
+environment: testing
+debug: true
+log_level: DEBUG

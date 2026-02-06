@@ -1,0 +1,16 @@
+{
+  "terms": [
+    {
+      "term": "habeas corpus",
+      "pronunciation": "HAY-bee-us KOR-pus",
+      "category": "criminal_procedure",
+      "definition": "A writ requiring a person under arrest to be brought before a judge"
+    },
+    {
+      "term": "voir dire",
+      "pronunciation": "vwar DEER",
+      "category": "jury_selection",
+      "definition": "The process of questioning potential jurors"
+    }
+  ]
+}
