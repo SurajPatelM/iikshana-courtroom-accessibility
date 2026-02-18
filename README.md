@@ -5,7 +5,7 @@ Iikshana is an **on-prem, AI-assisted courtroom accessibility system** designed 
 
 The system provides **live speech recognition, translation, and audio playback**, while preserving interpreter authority and court data sovereignty.
 
-> ⚖️ This system is assistive only.  
+> This system is assistive only.  
 > It does NOT replace certified interpreters.  
 > It does NOT produce official court records.  
 > All outputs require human oversight.
