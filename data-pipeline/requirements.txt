@@ -1,0 +1,36 @@
+# Data pipeline dependencies for Iikshana courtroom accessibility
+# Python 3.10+ recommended
+
+# Airflow (install separately: pip install apache-airflow)
+apache-airflow>=2.7.0
+
+# Data & audio
+numpy>=1.24.0
+scipy>=1.11.0
+soundfile>=0.12.0
+librosa>=0.10.0
+pandas>=2.0.0
+pyyaml>=6.0
+
+# Data validation
+great-expectations>=0.18.0
+
+# DVC
+dvc>=3.30.0
+dvc-gdrive  # optional: for Google Drive remote
+dvc-gs      # optional: for Google Cloud Storage remote
+
+# Bias / fairness (optional)
+fairlearn>=0.9.0
+
+# Testing
+pytest>=7.4.0
+pytest-cov>=4.1.0
+
+# Gemini API (optional: for verify_gemini_audio / gemini_verification_dag)
+google-genai>=1.0.0
+
+# Utilities
+requests>=2.31.0
+tqdm>=4.66.0
+checksumdir>=1.2.0
