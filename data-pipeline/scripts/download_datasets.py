@@ -160,11 +160,19 @@ def _download_ravdess(url: str) -> bool:
     """
     RAVDESS download + extract matching the known-working flow:
     zip at RAW_DIR/RAVDESS.zip, extract to RAW_DIR/RAVDESS/.
+    Skips download if zip or extracted dir already exists.
     """
     zip_path = RAW_DIR / "RAVDESS.zip"
     dataset_dir = RAW_DIR / "RAVDESS"
     if dataset_dir.exists():
         _log_and_print("RAVDESS already extracted. Skipping download.")
+        return True
+    if zip_path.exists():
+        _log_and_print("RAVDESS zip already present. Skipping download; extracting.")
+        dataset_dir.mkdir(parents=True, exist_ok=True)
+        with zipfile.ZipFile(zip_path, "r") as zf:
+            zf.extractall(dataset_dir)
+        _log_and_print("RAVDESS extraction complete.")
         return True
     _log_and_print(f"Downloading RAVDESS from: {url}")
     if not download_file(url, zip_path, connect_timeout=30, read_timeout=7200):
@@ -228,9 +236,16 @@ def download_datasets(datasets: Optional[List[str]] = None) -> Dict[str, bool]:
         raw_dir.mkdir(parents=True, exist_ok=True)
         fname = url.rstrip("/").split("/")[-1].split("?")[0] or f"{name}.zip"
         dest = raw_dir / fname
-        if dest.exists() and meta.get("checksum"):
-            if compute_sha256(dest) == meta["checksum"]:
-                _log_and_print(f"[OK] {name}: already present and valid: {dest}")
+        if dest.exists():
+            checksum = meta.get("checksum")
+            if checksum:
+                if compute_sha256(dest) == checksum:
+                    _log_and_print(f"[OK] {name}: already present and valid: {dest}")
+                    results[name] = True
+                    continue
+                # checksum mismatch — re-download below
+            else:
+                _log_and_print(f"[OK] {name}: already present (skipping download): {dest}")
                 results[name] = True
                 continue
         _log_and_print(f"[Download] {name}: {url} -> {dest}")
