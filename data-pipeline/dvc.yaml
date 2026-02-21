@@ -1,0 +1,51 @@
+# DVC pipeline definition for Iikshana data pipeline
+# Run with: dvc repro
+# Track data with: dvc add data/raw/RAVDESS data/processed/dev data/processed/test data/processed/holdout data/legal_glossary
+
+stages:
+  download:
+    cmd: python scripts/download_datasets.py
+    deps:
+      - scripts/download_datasets.py
+      - scripts/utils.py
+      - config/datasets.yaml
+    outs:
+      - data/raw
+
+  preprocess:
+    cmd: python scripts/preprocess_audio.py && python scripts/stratified_split.py
+    deps:
+      - scripts/preprocess_audio.py
+      - scripts/stratified_split.py
+      - scripts/utils.py
+      - config/datasets.yaml
+      - data/raw
+    outs:
+      - data/processed/dev
+      - data/processed/test
+      - data/processed/holdout
+
+  validate:
+    cmd: python scripts/validate_schema.py
+    deps:
+      - scripts/validate_schema.py
+      - data/processed
+    outs:
+      - data/processed/audio_schema.json
+      - data/processed/quality_report.json
+
+  bias:
+    cmd: python scripts/detect_bias.py
+    deps:
+      - scripts/detect_bias.py
+      - data/processed
+    outs:
+      - data/processed/bias_report.json
+
+  evaluate:
+    cmd: python scripts/evaluate_models.py
+    deps:
+      - scripts/evaluate_models.py
+      - data/processed
+    outs:
+      - data/processed/evaluation_metrics.json

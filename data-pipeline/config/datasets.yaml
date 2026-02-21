@@ -1,0 +1,88 @@
+# Dataset sources and pipeline config (inference- and API-oriented; we do not train models).
+# Datasets with a url are downloaded by data_acquisition_dag. Others are skipped (add url after obtaining access).
+
+emotion_datasets:
+  RAVDESS:
+    # Ryerson Audio-Visual Database of Emotional Speech and Song (Zenodo)
+    url: "https://zenodo.org/record/1188976/files/Audio_Speech_Actors_01-24.zip"
+    checksum: null
+    emotion_classes: 8 # neutral, calm, happy, sad, angry, fearful, disgust, surprised
+    format: wav
+  IEMOCAP:
+    # USC IEMOCAP — license/agreement required; request at https://sail.usc.edu/iemocap/
+    url: null
+    emotion_classes: 5 # neutral, happiness, sadness, anger, frustrated
+    format: wav
+  CREMA-D:
+    # CREMA-D — registration required; https://github.com/CheyneyComputerScience/CREMA-D or TFDS/Kaggle
+    url: null
+    emotion_classes: 6
+    format: wav
+  MELD:
+    # Multimodal EmotionLines Dataset (GitHub)
+    url: "https://github.com/declare-lab/MELD/archive/refs/heads/master.zip"
+    emotion_classes: 7
+    format: wav
+  TESS:
+    # Toronto Emotional Speech Set — Borealis (DOI 10.5683/SP2/E8H2MF); direct zip via API
+    url: "https://borealisdata.ca/api/access/dataset/:persistentId/?persistentId=doi:10.5683/SP2/E8H2MF"
+    checksum: null
+    emotion_classes: 7
+    format: wav
+  SAVEE:
+    # Surrey Audio-Visual Expressed Emotion — free but requires registration: http://kahlan.eps.surrey.ac.uk/savee/Download.html
+    url: null
+    emotion_classes: 7
+    format: wav
+  EMO-DB:
+    # Berlin EMO-DB (Zenodo 2.0)
+    url: "https://zenodo.org/records/16273947/files/emodb_2.0.zip"
+    checksum: null
+    emotion_classes: 7
+    format: wav
+
+multilingual_speech:
+  common_voice:
+    # Mozilla Common Voice — per-language downloads at https://commonvoice.mozilla.org/datasets; or use: load_dataset("mozilla-foundation/common_voice_17_0")
+    url: null
+    format: mp3
+  voxpopuli:
+    # VoxPopuli — Hugging Face: load_dataset("facebook/voxpopuli"); no single-file URL
+    url: null
+  librispeech:
+    # LibriSpeech (OpenSLR 12) — test-clean subset; full index: https://www.openslr.org/resources/12/
+    url: "https://www.openslr.org/resources/12/test-clean.tar.gz"
+    checksum: null
+
+# Pipeline settings (inference-style: same preprocessing/validation as when sending audio to Gemini/APIs)
+preprocessing:
+  # Inference preprocessing: exactly what we do before calling APIs (pipeline + backend live input)
+  target_sr: 16000
+  mono: true
+  normalize_loudness: true
+  trim_silence: true
+
+# Evaluation sets only (no train split): we run APIs on these to measure WER, BLEU, F1
+splits:
+  dev: 0.20
+  test: 0.70
+  holdout: 0.10
+
+# API-input validation: format and bounds expected by our APIs
+validation:
+  expected_sr: 16000
+  min_duration_sec: 0.5
+  max_duration_sec: 30.0
+  allowed_emotion_labels:
+    RAVDESS:
+      [
+        "neutral",
+        "calm",
+        "happy",
+        "sad",
+        "angry",
+        "fearful",
+        "disgust",
+        "surprised",
+      ]
+    IEMOCAP: ["neutral", "happiness", "sadness", "anger", "frustrated"]
