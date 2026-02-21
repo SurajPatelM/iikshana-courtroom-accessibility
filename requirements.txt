@@ -29,6 +29,11 @@ pytest-cov>=4.1.0
 
 # Gemini API (optional: for verify_gemini_audio / gemini_verification_dag)
 google-genai>=1.0.0
+# Hugging Face (for MELD/TESS)
+datasets>=2.14.0
+
+# Kaggle (for TESS: pip install kagglehub; set up Kaggle API credentials)
+kagglehub>=0.2.0
 
 # Utilities
 requests>=2.31.0

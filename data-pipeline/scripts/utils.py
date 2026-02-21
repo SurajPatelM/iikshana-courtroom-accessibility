@@ -9,9 +9,10 @@ from typing import Any, Optional
 
 import yaml
 
-# Base paths relative to data-pipeline/
+# Base paths: pipeline lives in data-pipeline/, data lives at repo root data/
 PIPELINE_ROOT = Path(__file__).resolve().parent.parent
-DATA_ROOT = PIPELINE_ROOT / "data"
+REPO_ROOT = PIPELINE_ROOT.parent
+DATA_ROOT = REPO_ROOT / "data"
 RAW_DIR = DATA_ROOT / "raw"
 PROCESSED_DIR = DATA_ROOT / "processed"
 LEGAL_GLOSSARY_DIR = DATA_ROOT / "legal_glossary"
