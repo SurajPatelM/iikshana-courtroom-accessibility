@@ -22,43 +22,56 @@ default_args = {
 }
 
 with DAG(
-    dag_id="full_pipeline_dag",
-    default_args=default_args,
-    description="Triggers acquisition → preprocessing → validation → anomaly → gemini_verification (last; no bias)",
-    schedule=None,
-    start_date=datetime(2025, 1, 1),
-    catchup=False,
-    tags=["iikshana", "data", "pipeline", "full"],
+        dag_id="full_pipeline_dag",
+        default_args=default_args,
+        description="Triggers acquisition → preprocessing → validation → anomaly → bias_detection → gemini_verification",
+        schedule=None,
+        start_date=datetime(2025, 1, 1),
+        catchup=False,
+        tags=["iikshana", "data", "pipeline", "full"],
 ) as dag:
     trigger_acquisition = TriggerDagRunOperator(
         task_id="trigger_data_acquisition",
         trigger_dag_id="data_acquisition_dag",
-        wait_for_completion=True,  # success only after acquisition DAG completes and raw is filled
+        wait_for_completion=True,
     )
 
     trigger_preprocessing = TriggerDagRunOperator(
         task_id="trigger_preprocessing",
         trigger_dag_id="preprocessing_dag",
-        wait_for_completion=True,  # run after acquisition finishes
+        wait_for_completion=True,
     )
 
     trigger_validation = TriggerDagRunOperator(
         task_id="trigger_validation",
         trigger_dag_id="validation_dag",
-        wait_for_completion=True,  # run after preprocessing finishes
+        wait_for_completion=True,
     )
 
     trigger_anomaly = TriggerDagRunOperator(
         task_id="trigger_anomaly_detection",
         trigger_dag_id="anomaly_detection_dag",
-        wait_for_completion=True,  # so Gemini runs only if no anomaly
+        wait_for_completion=True,
+    )
+
+    trigger_bias_detection = TriggerDagRunOperator(
+        task_id="trigger_bias_detection",
+        trigger_dag_id="bias_detection_dag",
+        wait_for_completion=True,  # Gemini only runs on bias-checked data
     )
 
     trigger_gemini_verification = TriggerDagRunOperator(
         task_id="trigger_gemini_verification",
         trigger_dag_id="gemini_verification_dag",
-        wait_for_completion=False,
+        wait_for_completion=True,  # Final gate
     )
 
-    # acquisition → preprocessing → validation → anomaly → gemini (last); if anomaly fails, Gemini is not triggered
-    trigger_acquisition >> trigger_preprocessing >> trigger_validation >> trigger_anomaly >> trigger_gemini_verification
+    # acquisition → preprocessing → validation → anomaly → bias_detection → gemini (final)
+    (
+            trigger_acquisition
+            >> trigger_preprocessing
+            >> trigger_validation
+            >> trigger_anomaly
+            >> trigger_bias_detection
+            >> trigger_gemini_verification
+    )
