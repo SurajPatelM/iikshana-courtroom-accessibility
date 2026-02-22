@@ -21,6 +21,7 @@ def _ensure_scripts_on_path():
     """Ensure pipeline root (so 'scripts' can be imported) is on sys.path at task runtime."""
     # Prefer known Docker path so scripts are found regardless of which process runs the task
     for root in [
+        Path("/workspace/data-pipeline"),
         Path("/opt/airflow"),
         PIPELINE_ROOT,
         _DAG_DIR.parent.parent / "data-pipeline",
@@ -33,8 +34,8 @@ def _ensure_scripts_on_path():
     return PIPELINE_ROOT
 
 
-# Same command as: cd data-pipeline && python -m scripts.download_datasets (in container: /opt/airflow)
-DOWNLOAD_CMD = "cd /opt/airflow && PYTHONPATH=/opt/airflow python -m scripts.download_datasets"
+# Run from repo data-pipeline so scripts write to repo data/ (REPO_ROOT=/workspace -> /workspace/data)
+DOWNLOAD_CMD = "cd /workspace/data-pipeline && REPO_ROOT=/workspace PYTHONPATH=/workspace/data-pipeline python -m scripts.download_datasets"
 
 
 def _validate_checksums():

@@ -6,9 +6,10 @@
 
 x-airflow-common:
   &airflow-common
-  image: apache/airflow:2.7.0
+  image: apache/airflow:2.7.0-python3.10
   environment:
     &airflow-common-env
+    REPO_ROOT: /workspace
     AIRFLOW__CORE__EXECUTOR: LocalExecutor
     AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
     AIRFLOW__CORE__DAGS_FOLDER: /opt/airflow/dags
@@ -21,9 +22,9 @@ x-airflow-common:
   user: "${AIRFLOW_UID:-50000}:0"
   volumes:
     - ./dags:/opt/airflow/dags
+    - ..:/workspace
     - ../data-pipeline/scripts:/opt/airflow/scripts
     - ../data-pipeline/config:/opt/airflow/config
-    - ../data-pipeline/data:/opt/airflow/data
     - ../data-pipeline/logs:/opt/airflow/logs
     - airflow-logs:/opt/airflow/airflow_logs
   depends_on:
@@ -84,9 +85,9 @@ services:
       _AIRFLOW_WWW_USER_PASSWORD: ${_AIRFLOW_WWW_USER_PASSWORD:-airflow}
     volumes:
       - ./dags:/opt/airflow/dags
+      - ..:/workspace
       - ../data-pipeline/scripts:/opt/airflow/scripts
       - ../data-pipeline/config:/opt/airflow/config
-      - ../data-pipeline/data:/opt/airflow/data
       - ../data-pipeline/logs:/opt/airflow/logs
       - airflow-logs:/opt/airflow/airflow_logs
     user: "${AIRFLOW_UID:-50000}:0"

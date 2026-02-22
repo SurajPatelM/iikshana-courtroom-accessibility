@@ -17,7 +17,7 @@ if str(PIPELINE_ROOT) not in sys.path:
 def _run_validation(**kwargs):
     from scripts.validate_schema import run_validation
     from scripts.utils import PROCESSED_DIR
-    r = run_validation(data_dir=PIPELINE_ROOT / "data" / "processed", schema_out=PROCESSED_DIR / "audio_schema.json", report_out=PROCESSED_DIR / "quality_report.json")
+    r = run_validation(data_dir=PROCESSED_DIR, schema_out=PROCESSED_DIR / "audio_schema.json", report_out=PROCESSED_DIR / "quality_report.json")
     if r.get("failed", 0) > 0 and r.get("passed", 0) == 0:
         raise RuntimeError("All validation checks failed")
     return r
@@ -28,7 +28,7 @@ def _run_great_expectations(**kwargs):
     from scripts.run_great_expectations import run_ge_validation_and_statistics
     from scripts.utils import PROCESSED_DIR
     out = run_ge_validation_and_statistics(
-        data_dir=PIPELINE_ROOT / "data" / "processed",
+        data_dir=PROCESSED_DIR,
         result_path=PROCESSED_DIR / "ge_validation_result.json",
         statistics_path=PROCESSED_DIR / "data_statistics.json",
     )

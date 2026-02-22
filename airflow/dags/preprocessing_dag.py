@@ -24,7 +24,8 @@ def _run_preprocess(**kwargs):
 
 def _run_split(**kwargs):
     from scripts.stratified_split import run_split
-    return run_split(staged_dir=PIPELINE_ROOT / "data" / "processed" / "staged", out_dir=PIPELINE_ROOT / "data" / "processed")
+    from scripts.utils import PROCESSED_DIR
+    return run_split(staged_dir=PROCESSED_DIR / "staged", out_dir=PROCESSED_DIR)
 
 
 _default_args = {

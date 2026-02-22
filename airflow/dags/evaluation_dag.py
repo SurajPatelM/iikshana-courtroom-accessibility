@@ -16,7 +16,8 @@ if str(PIPELINE_ROOT) not in sys.path:
 
 def _run_evaluation(**kwargs):
     from scripts.evaluate_models import run_evaluation
-    return run_evaluation(data_dir=PIPELINE_ROOT / "data" / "processed", metrics_path=PIPELINE_ROOT / "data" / "processed" / "evaluation_metrics.json", use_live_apis=False)
+    from scripts.utils import PROCESSED_DIR
+    return run_evaluation(data_dir=PROCESSED_DIR, metrics_path=PROCESSED_DIR / "evaluation_metrics.json", use_live_apis=False)
 
 
 _default_args = {

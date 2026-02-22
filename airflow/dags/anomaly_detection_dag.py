@@ -17,10 +17,11 @@ if str(PIPELINE_ROOT) not in sys.path:
 def _run_anomaly_checks(**kwargs):
     """Run anomaly detection; raise on anomalies so Airflow triggers email_on_failure (PDF: alert on anomalies)."""
     from scripts.anomaly_check import run_anomaly_checks
+    from scripts.utils import RAW_DIR, PROCESSED_DIR
     report = run_anomaly_checks(
-        raw_dir=PIPELINE_ROOT / "data" / "raw",
-        processed_dir=PIPELINE_ROOT / "data" / "processed",
-        report_path=PIPELINE_ROOT / "data" / "processed" / "anomaly_report.json",
+        raw_dir=RAW_DIR,
+        processed_dir=PROCESSED_DIR,
+        report_path=PROCESSED_DIR / "anomaly_report.json",
     )
     if not report.get("passed", True):
         raise RuntimeError(
