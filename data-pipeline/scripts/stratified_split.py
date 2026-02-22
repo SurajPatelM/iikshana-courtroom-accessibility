@@ -121,15 +121,33 @@ def run_split(
         split_dir = out_dir / split_name
         split_dir.mkdir(parents=True, exist_ok=True)
         manifest = []
+        used_names = set()
         for m in split_meta:
             src = Path(m["path"])
             if not src.exists():
                 continue
-            dest = split_dir / src.name
+            try:
+                rel = src.relative_to(staged_dir)
+                dataset = rel.parts[0] if rel.parts else "unknown"
+            except ValueError:
+                dataset = "unknown"
+            dataset = re.sub(r"[\s/\\]+", "_", dataset)
+            dest_name = f"{dataset}_{src.stem}.wav"
+            idx = 0
+            while dest_name in used_names:
+                idx += 1
+                dest_name = f"{dataset}_{src.stem}_{idx}.wav"
+            used_names.add(dest_name)
+            dest = split_dir / dest_name
             if dest != src:
                 import shutil
                 shutil.copy2(src, dest)
-            manifest.append({"file": dest.name, "speaker_id": m["speaker_id"], "emotion": m["emotion"]})
+            manifest.append({
+                "file": dest.name,
+                "dataset": dataset,
+                "speaker_id": m["speaker_id"],
+                "emotion": m["emotion"],
+            })
         manifest_path = split_dir / "manifest.json"
         with open(manifest_path, "w", encoding="utf-8") as f:
             json.dump(manifest, f, indent=2)

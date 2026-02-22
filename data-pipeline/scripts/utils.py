@@ -11,7 +11,7 @@ import yaml
 
 # Base paths: pipeline lives in data-pipeline/, data lives at repo root data/
 PIPELINE_ROOT = Path(__file__).resolve().parent.parent
-REPO_ROOT = PIPELINE_ROOT.parent
+REPO_ROOT = Path(os.environ.get("REPO_ROOT", str(PIPELINE_ROOT.parent)))
 DATA_ROOT = REPO_ROOT / "data"
 RAW_DIR = DATA_ROOT / "raw"
 PROCESSED_DIR = DATA_ROOT / "processed"
