@@ -21,12 +21,13 @@ emotion_datasets:
     format: wav
   MELD:
     # Multimodal EmotionLines Dataset
-    url: "https://github.com/declare-lab/MELD/archive/refs/heads/master.zip"
+    url: null #"https://github.com/declare-lab/MELD/archive/refs/heads/master.zip"
     emotion_classes: 7
     format: wav
   TESS:
-    # Toronto Emotional Speech Set
-    url: null  # available from U of T
+    # Toronto Emotional Speech Set. Add direct ZIP URL after manual download from:
+    # https://borealisdata.ca/dataset.xhtml?persistentId=doi%3A10.5683%2FSP2%2FE8H2MF
+    url: null
     emotion_classes: 7
     format: wav
   SAVEE:
@@ -35,7 +36,7 @@ emotion_datasets:
     format: wav
   EMO-DB:
     # Berlin EMO-DB
-    url: null
+    url: "https://zenodo.org/records/16273947/files/emodb_2.0.zip"
     emotion_classes: 7
     format: wav
 
@@ -47,14 +48,17 @@ multilingual_speech:
   voxpopuli:
     url: null
   librispeech:
-    url: null
+    url: "https://www.openslr.org/resources/12/test-clean.tar.gz"
+    checksum: null
 
 # Pipeline settings
+# include_video: true enables .mp4/.mkv etc. (e.g. MELD); requires ffmpeg installed
 preprocessing:
   target_sr: 16000
   mono: true
   normalize_loudness: true
   trim_silence: true
+  include_video: true
 
 splits:
   dev: 0.20

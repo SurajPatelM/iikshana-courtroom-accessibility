@@ -39,7 +39,7 @@ pip install -r requirements.txt
 
 ### 2. Airflow (orchestration)
 
-DAGs and Docker setup live in the **`airflow/`** directory at the repo root (not inside data-pipeline). The container mounts this directory’s `scripts`, `config`, and `data`.
+DAGs and Docker setup live in the **`airflow/`** directory at the repo root (not inside data-pipeline). The container mounts the repo root and this directory’s `scripts` and `config`; data is stored at repo root **`data/`**.
 
 From the repo root:
 
@@ -99,18 +99,19 @@ python scripts/legal_glossary_prep.py
 
 ### Data folders and verifying acquisition
 
-- **Data directories** are kept in git via `.gitkeep`:
-  - `data-pipeline/data/.gitkeep`
-  - `data-pipeline/data/raw/.gitkeep`
-- **Raw downloads** (RAVDESS, MELD, EMO-DB, etc.) go into **`data-pipeline/data/raw/`**. When using Airflow (Docker), the container writes to `/opt/airflow/data/raw`, which is mounted from this `data/` folder, so files appear here after **data_acquisition_dag** runs.
-- **To confirm the DAG is working:** After running **data_acquisition_dag** in the Airflow UI, check that `data/raw/` contains files (e.g. `RAVDESS/`, `RAVDESS.zip`, `MELD/`, etc.). In the UI, open the run → **download_datasets** task → **Log** and look for `RAW_DIR=...` and any download or error lines.
+- **Data** is stored at **repo root** in **`data/`** (not under `data-pipeline/`). Directories are kept in git via `.gitkeep`:
+  - `data/.gitkeep`
+  - `data/raw/.gitkeep`
+  - `data/processed/.gitkeep`
+- **Raw downloads** (RAVDESS, MELD, EMO-DB, etc.) go into **`data/raw/`** at the repo root. When using Airflow (Docker), the container writes to `/workspace/data/raw`, which is the repo's `data/` folder, so files appear in **`data/raw/`** after **data_acquisition_dag** runs.
+- **To confirm the DAG is working:** After running **data_acquisition_dag** in the Airflow UI, check that **`data/raw/`** (at repo root) contains files (e.g. `RAVDESS/`, `RAVDESS.zip`, `MELD/`, etc.). In the UI, open the run → **download_datasets** task → **Log** and look for `RAW_DIR=...` and any download or error lines.
 - **To test download without Airflow** (same script the DAG uses):
   ```bash
   cd data-pipeline
   python -m scripts.download_datasets
   # or: python scripts/download_datasets.py
   ```
-  Then list raw: `ls -la data/raw/`.
+  Then list raw (from repo root): `ls -la data/raw/`, or from data-pipeline: `ls -la ../data/raw/`.
 
 ### With DVC
 
@@ -170,12 +171,13 @@ Add or update URLs and checksums in `config/datasets.yaml`.
 
 ## DVC Commands
 
-- **Track data** (after downloads and processing):
+- **Track data** (after downloads and processing; run from `data-pipeline/`; data lives at repo root `data/`):
 
   ```bash
-  dvc add data/raw/RAVDESS data/raw/IEMOCAP
-  dvc add data/processed/dev data/processed/test data/processed/holdout   # evaluation sets
-  dvc add data/legal_glossary
+  cd data-pipeline
+  dvc add ../data/raw/RAVDESS ../data/raw/IEMOCAP
+  dvc add ../data/processed/dev ../data/processed/test ../data/processed/holdout   # evaluation sets
+  dvc add ../data/legal_glossary
   git add *.dvc .gitignore
   git commit -m "Track pipeline data with DVC"
   ```
@@ -206,6 +208,8 @@ pytest tests/ -v
 
 ## Folder Structure
 
+Data lives at **repo root** in **`data/`** (`data/raw/`, `data/processed/`, `data/legal_glossary/` — DVC tracked). Pipeline code:
+
 ```
 data-pipeline/
 ├── dags/                          # DAGs moved to repo root airflow/dags/ (see dags/README.md)
@@ -225,10 +229,6 @@ data-pipeline/
 │   ├── test_preprocessing.py
 │   ├── test_validation.py
 │   └── test_splitting.py
-├── data/
-│   ├── raw/              # DVC tracked
-│   ├── processed/        # evaluation sets (dev, test, holdout) + reports (DVC tracked)
-│   └── legal_glossary/   # DVC tracked
 ├── config/
 │   └── datasets.yaml
 ├── logs/
@@ -239,7 +239,7 @@ data-pipeline/
 
 ## Bias Detection Results
 
-The bias detection step (`scripts/detect_bias.py`, `bias_detection_dag`) produces `data/processed/bias_report.json` with:
+The bias detection step (`scripts/detect_bias.py`, `bias_detection_dag`) produces **`data/processed/bias_report.json`** (at repo root) with:
 
 - Counts per emotion and per speaker.
 - Disparities (e.g. strong class imbalance).
@@ -258,7 +258,7 @@ This section documents the steps we take to detect and mitigate bias, the types 
 
 1. **Data slicing**: We slice the processed dataset by **sensitive features** (emotion label, speaker identity as a proxy for demographics). Slicing is implemented using **Fairlearn**’s `MetricFrame` (PDF §3.2) so that metrics (e.g. sample count) are computed per subgroup.
 2. **Disparity detection**: We compare counts per slice to an expected balanced proportion (e.g. equal share per emotion). Any slice that deviates beyond a threshold (e.g. &gt;50% above/below expected) is flagged as a disparity in `bias_report.json`.
-3. **Report generation**: The pipeline writes `data/processed/bias_report.json` with `by_emotion`, `by_speaker_count`, `fairlearn_by_group`, `disparities`, and `recommendations`.
+3. **Report generation**: The pipeline writes **`data/processed/bias_report.json`** (repo root) with `by_emotion`, `by_speaker_count`, `fairlearn_by_group`, `disparities`, and `recommendations`.
 
 ### 2. Types of bias we look for
 
