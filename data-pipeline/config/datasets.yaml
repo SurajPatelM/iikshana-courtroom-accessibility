@@ -36,7 +36,7 @@ emotion_datasets:
     format: wav
   EMO-DB:
     # Berlin EMO-DB
-    url: "https://zenodo.org/records/16273947/files/emodb_2.0.zip"
+    url: null
     emotion_classes: 7
     format: wav
 
@@ -48,7 +48,7 @@ multilingual_speech:
   voxpopuli:
     url: null
   librispeech:
-    url: "https://www.openslr.org/resources/12/test-clean.tar.gz"
+    url: null
     checksum: null
 
 # Pipeline settings
@@ -72,3 +72,13 @@ validation:
   allowed_emotion_labels:
     RAVDESS: ["neutral", "calm", "happy", "sad", "angry", "fearful", "disgust", "surprised"]
     IEMOCAP: ["neutral", "happiness", "sadness", "anger", "frustrated"]
+
+# Optional: anomaly check thresholds (defaults used if missing)
+anomaly_checks:
+  max_class_ratio: 0.80   # flag if any emotion > 80%
+  min_class_ratio: 0.01   # flag if any emotion < 5%
+  fail_on_schema_failures: true   # treat validation failures as anomalies
+  min_files_per_split: 1   # require at least this many WAVs per dev/test/holdout
+  max_out_of_range_ratio: 0.2   # flag if fraction of files outside duration range exceeds this
+  min_dataset_ratio: 0.01   # flag if any dataset < 1% of total (multi-dataset)
+  max_dataset_ratio: 0.95   # flag if any dataset > 95% of total (multi-dataset)

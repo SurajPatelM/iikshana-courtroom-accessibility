@@ -34,12 +34,38 @@ def infer_speaker_id(path: Path) -> str:
     return name[:32]
 
 
+# RAVDESS filename: XX-XX-NN-XX-XX-XX-XX -> third segment (index 2) is emotion code 01-08
+RAVDESS_EMOTION_BY_CODE = (
+    "neutral",   # 01
+    "calm",      # 02
+    "happy",     # 03
+    "sad",       # 04
+    "angry",     # 05
+    "fearful",   # 06
+    "surprised", # 07
+    "disgust",   # 08
+)
+
+
 def infer_emotion(path: Path) -> str:
     """Infer emotion label from path/filename if possible."""
-    stem = path.stem.lower()
-    # RAVDESS: 03-01-05-01-01-01-01 -> 05 is emotion code
+    stem = path.stem
+    parts_lower = [p.lower() for p in path.parts]
+
+    # RAVDESS: 03-01-05-01-01-01-01 -> third segment is emotion code (01-08)
+    if "ravdess" in parts_lower or re.match(r"^\d{2}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2}$", stem):
+        segments = stem.split("-")
+        if len(segments) >= 3:
+            try:
+                code = int(segments[2])
+                if 1 <= code <= 8:
+                    return RAVDESS_EMOTION_BY_CODE[code - 1]
+            except ValueError:
+                pass
+
+    stem_lower = stem.lower()
     for label in ("neutral", "calm", "happy", "sad", "angry", "fearful", "disgust", "surprised"):
-        if label in stem or label in path.parts:
+        if label in stem_lower or label in parts_lower:
             return label
     return "unknown"
 

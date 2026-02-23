@@ -9,13 +9,32 @@ from airflow.operators.python import PythonOperator
 
 import sys
 from pathlib import Path
-PIPELINE_ROOT = Path(__file__).resolve().parent.parent
+
+_DAG_DIR = Path(__file__).resolve().parent
+PIPELINE_ROOT = _DAG_DIR.parent
 if str(PIPELINE_ROOT) not in sys.path:
     sys.path.insert(0, str(PIPELINE_ROOT))
 
 
+def _ensure_scripts_on_path():
+    """Ensure pipeline root (so 'scripts' can be imported) is on sys.path at task runtime."""
+    for root in [
+        Path("/workspace/data-pipeline"),
+        Path("/opt/airflow"),
+        PIPELINE_ROOT,
+        _DAG_DIR.parent.parent / "data-pipeline",
+    ]:
+        if root.exists() and (root / "scripts" / "utils.py").exists():
+            s = str(root)
+            if s not in sys.path:
+                sys.path.insert(0, s)
+            return root
+    return PIPELINE_ROOT
+
+
 def _run_anomaly_checks(**kwargs):
     """Run anomaly detection; raise on anomalies so Airflow triggers email_on_failure (PDF: alert on anomalies)."""
+    _ensure_scripts_on_path()
     from scripts.anomaly_check import run_anomaly_checks
     from scripts.utils import RAW_DIR, PROCESSED_DIR
     report = run_anomaly_checks(
