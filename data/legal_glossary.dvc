@@ -1,0 +1,6 @@
+outs:
+- md5: d8a9ff0114b3b1d8e18e628ea84fdff3.dir
+  size: 416
+  nfiles: 1
+  hash: md5
+  path: legal_glossary
