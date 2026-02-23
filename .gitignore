@@ -212,3 +212,4 @@ data/raw/*
 data/processed/*
 !data/processed/.gitkeep
 data-pipeline/logs/scheduler/
+data-pipeline/data/raw/*
