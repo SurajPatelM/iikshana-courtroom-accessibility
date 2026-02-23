@@ -15,9 +15,20 @@ if str(PIPELINE_ROOT) not in sys.path:
 
 
 def _run_evaluation(**kwargs):
+    import sys
+    _dags_dir = Path(__file__).resolve().parent
+    if str(_dags_dir) not in sys.path:
+        sys.path.insert(0, str(_dags_dir))
+    from dag_logging import log_dag_task_paths
     from scripts.evaluate_models import run_evaluation
     from scripts.utils import PROCESSED_DIR
-    return run_evaluation(data_dir=PROCESSED_DIR, metrics_path=PROCESSED_DIR / "evaluation_metrics.json", use_live_apis=False)
+    metrics_path = PROCESSED_DIR / "evaluation_metrics.json"
+    log_dag_task_paths(
+        "evaluation_dag", "evaluate_models",
+        read_from=[str(PROCESSED_DIR)],
+        write_to=[str(metrics_path)],
+    )
+    return run_evaluation(data_dir=PROCESSED_DIR, metrics_path=metrics_path, use_live_apis=False)
 
 
 _default_args = {

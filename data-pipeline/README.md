@@ -53,12 +53,13 @@ See **`airflow/README.md`** for details. Allocate at least 4GB memory for Docker
 
 ### 3. DVC (data versioning)
 
+DVC is **initialized at the repo root** (not in `data-pipeline/`). GCS is configured as the default remote so you can `dvc push` and `dvc pull`.
+
 ```bash
 pip install dvc dvc-gs   # dvc-gs for Google Cloud Storage
-cd data-pipeline
-dvc init
-# Optional: add remote (GCS or local)
-# dvc remote add -d storage gs://your-bucket/dvc
+# DVC is already initialized at repo root. To use GCS (one-time):
+#   dvc remote add -d storage gs://YOUR_BUCKET/dvc --local
+# See docs/DVC_GCS_SETUP.md for full setup and push/pull workflow.
 ```
 
 ## Running the Pipeline
@@ -171,6 +172,8 @@ Add or update URLs and checksums in `config/datasets.yaml`.
 
 ## DVC Commands
 
+See **`docs/DVC_GCS_SETUP.md`** for full GCS setup (`dvc push` / `dvc pull`).
+
 - **Track data** (after downloads and processing; run from `data-pipeline/`; data lives at repo root `data/`):
 
   ```bash
@@ -182,7 +185,13 @@ Add or update URLs and checksums in `config/datasets.yaml`.
   git commit -m "Track pipeline data with DVC"
   ```
 
-- **Pull data** (e.g. on another machine):
+- **Push data to GCS** (from repo root or `data-pipeline/`):
+
+  ```bash
+  dvc push
+  ```
+
+- **Pull data** (e.g. on another machine, after configuring GCS remote):
 
   ```bash
   dvc pull
@@ -191,6 +200,7 @@ Add or update URLs and checksums in `config/datasets.yaml`.
 - **Reproduce pipeline**:
 
   ```bash
+  cd data-pipeline
   dvc repro
   ```
 

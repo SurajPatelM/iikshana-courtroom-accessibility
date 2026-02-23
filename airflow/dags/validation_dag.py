@@ -15,9 +15,21 @@ if str(PIPELINE_ROOT) not in sys.path:
 
 
 def _run_validation(**kwargs):
+    import sys
+    _dags_dir = Path(__file__).resolve().parent
+    if str(_dags_dir) not in sys.path:
+        sys.path.insert(0, str(_dags_dir))
+    from dag_logging import log_dag_task_paths
     from scripts.validate_schema import run_validation
     from scripts.utils import PROCESSED_DIR
-    r = run_validation(data_dir=PROCESSED_DIR, schema_out=PROCESSED_DIR / "audio_schema.json", report_out=PROCESSED_DIR / "quality_report.json")
+    schema_out = PROCESSED_DIR / "audio_schema.json"
+    report_out = PROCESSED_DIR / "quality_report.json"
+    log_dag_task_paths(
+        "validation_dag", "validate_schema_and_quality",
+        read_from=[str(PROCESSED_DIR)],
+        write_to=[str(schema_out), str(report_out)],
+    )
+    r = run_validation(data_dir=PROCESSED_DIR, schema_out=schema_out, report_out=report_out)
     if r.get("failed", 0) > 0 and r.get("passed", 0) == 0:
         raise RuntimeError("All validation checks failed")
     return r
@@ -25,12 +37,24 @@ def _run_validation(**kwargs):
 
 def _run_great_expectations(**kwargs):
     """Run Great Expectations for schema and statistics (PDF §2.7)."""
+    import sys
+    _dags_dir = Path(__file__).resolve().parent
+    if str(_dags_dir) not in sys.path:
+        sys.path.insert(0, str(_dags_dir))
+    from dag_logging import log_dag_task_paths
     from scripts.run_great_expectations import run_ge_validation_and_statistics
     from scripts.utils import PROCESSED_DIR
+    result_path = PROCESSED_DIR / "ge_validation_result.json"
+    statistics_path = PROCESSED_DIR / "data_statistics.json"
+    log_dag_task_paths(
+        "validation_dag", "run_great_expectations",
+        read_from=[str(PROCESSED_DIR)],
+        write_to=[str(result_path), str(statistics_path)],
+    )
     out = run_ge_validation_and_statistics(
         data_dir=PROCESSED_DIR,
-        result_path=PROCESSED_DIR / "ge_validation_result.json",
-        statistics_path=PROCESSED_DIR / "data_statistics.json",
+        result_path=result_path,
+        statistics_path=statistics_path,
     )
     if not out.get("success", True):
         raise RuntimeError("Great Expectations validation failed")

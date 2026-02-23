@@ -1,8 +1,10 @@
 """
 Data Acquisition DAG: download emotion & speech datasets, validate checksums, store in data/raw/ (DVC tracked).
 Runs the same download command as CLI (python -m scripts.download_datasets) so behavior matches manual runs.
+Data is written to REPO_ROOT/data/raw/ (in Docker REPO_ROOT=/workspace, so same as repo root data/ on host).
 """
 from datetime import datetime, timedelta
+import os
 import sys
 from pathlib import Path
 
@@ -15,6 +17,14 @@ _DAG_DIR = Path(__file__).resolve().parent
 PIPELINE_ROOT = _DAG_DIR.parent
 if str(PIPELINE_ROOT) not in sys.path:
     sys.path.insert(0, str(PIPELINE_ROOT))
+
+# Same REPO_ROOT as full_pipeline_dag so acquisition always writes to repo data/ (and dvc push sees it)
+ACQUISITION_REPO_ROOT = os.environ.get("REPO_ROOT", "/workspace")
+ACQUISITION_ENV = {
+    **os.environ,
+    "REPO_ROOT": ACQUISITION_REPO_ROOT,
+    "PYTHONPATH": f"{ACQUISITION_REPO_ROOT}/data-pipeline",
+}
 
 
 def _ensure_scripts_on_path():
@@ -34,15 +44,35 @@ def _ensure_scripts_on_path():
     return PIPELINE_ROOT
 
 
-# Run from repo data-pipeline so scripts write to repo data/ (REPO_ROOT=/workspace -> /workspace/data)
-DOWNLOAD_CMD = "cd /workspace/data-pipeline && REPO_ROOT=/workspace PYTHONPATH=/workspace/data-pipeline python -m scripts.download_datasets"
+# Run from repo data-pipeline so scripts write to DATA_ROOT/raw (in Docker = /workspace/data-pipeline/data/raw)
+DOWNLOAD_CMD = (
+    'echo "[DAG_LOG] ========== DAG run ==========" && '
+    'echo "[DAG_LOG] DAG_ID=data_acquisition_dag TASK_ID=download_datasets" && '
+    'echo "[DAG_LOG] READ_FROM: config/datasets.yaml (URLs). WRITE_TO: ${DATA_ROOT:-$REPO_ROOT/data-pipeline/data}/raw" && '
+    'echo "[DAG_LOG] DATA_ROOT=${DATA_ROOT:-$REPO_ROOT/data-pipeline/data}" && '
+    'echo "[DAG_LOG] ================================" && '
+    'echo "Writing data to ${DATA_ROOT:-$REPO_ROOT/data-pipeline/data}/raw" && '
+    'cd "${REPO_ROOT}/data-pipeline" && '
+    'python -m scripts.download_datasets'
+)
 
 
 def _validate_checksums():
     # Resolve pipeline root at runtime so scripts are found (task may run in different process)
     _ensure_scripts_on_path()
-    from scripts.download_datasets import compute_sha256
+    import sys
+    _dags_dir = Path(__file__).resolve().parent
+    if str(_dags_dir) not in sys.path:
+        sys.path.insert(0, str(_dags_dir))
+    from dag_logging import log_dag_task_paths
     from scripts.utils import RAW_DIR
+    log_dag_task_paths(
+        "data_acquisition_dag", "validate_checksums",
+        read_from=[str(RAW_DIR)],
+        write_to=[],
+        extra={"action": "compute_checksums_only"},
+    )
+    from scripts.download_datasets import compute_sha256
     out = {}
     for p in RAW_DIR.rglob("*"):
         if p.is_file() and p.suffix != ".dvc":
@@ -68,6 +98,7 @@ def get_tasks(dag: DAG):
     download_task = BashOperator(
         task_id="download_datasets",
         bash_command=DOWNLOAD_CMD,
+        env=ACQUISITION_ENV,
         execution_timeout=timedelta(hours=2),
         dag=dag,
     )

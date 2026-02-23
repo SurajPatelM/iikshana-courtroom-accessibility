@@ -123,6 +123,8 @@ iikshana-courtroom-accessibility/
 └── config/                  # Environment configs
 ```
 
+**Data versioning:** Large data under `data/` is versioned with **DVC**; remote storage is **Google Cloud Storage (GCS)**. See [`docs/DVC_GCS_SETUP.md`](docs/DVC_GCS_SETUP.md) for `dvc push` / `dvc pull` setup.
+
 ---
 
 # Quick Start (Development)

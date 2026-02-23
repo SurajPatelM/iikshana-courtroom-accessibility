@@ -35,12 +35,23 @@ def _ensure_scripts_on_path():
 def _run_anomaly_checks(**kwargs):
     """Run anomaly detection; raise on anomalies so Airflow triggers email_on_failure (PDF: alert on anomalies)."""
     _ensure_scripts_on_path()
+    import sys
+    _dags_dir = Path(__file__).resolve().parent
+    if str(_dags_dir) not in sys.path:
+        sys.path.insert(0, str(_dags_dir))
+    from dag_logging import log_dag_task_paths
     from scripts.anomaly_check import run_anomaly_checks
     from scripts.utils import RAW_DIR, PROCESSED_DIR
+    report_path = PROCESSED_DIR / "anomaly_report.json"
+    log_dag_task_paths(
+        "anomaly_detection_dag", "run_anomaly_checks_and_alert",
+        read_from=[str(RAW_DIR), str(PROCESSED_DIR)],
+        write_to=[str(report_path)],
+    )
     report = run_anomaly_checks(
         raw_dir=RAW_DIR,
         processed_dir=PROCESSED_DIR,
-        report_path=PROCESSED_DIR / "anomaly_report.json",
+        report_path=report_path,
     )
     if not report.get("passed", True):
         raise RuntimeError(

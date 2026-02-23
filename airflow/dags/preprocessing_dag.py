@@ -15,6 +15,18 @@ if str(PIPELINE_ROOT) not in sys.path:
 
 
 def _run_preprocess(**kwargs):
+    import sys
+    _dags_dir = Path(__file__).resolve().parent
+    if str(_dags_dir) not in sys.path:
+        sys.path.insert(0, str(_dags_dir))
+    from dag_logging import log_dag_task_paths
+    from scripts.utils import RAW_DIR, PROCESSED_DIR
+    staged = PROCESSED_DIR / "staged"
+    log_dag_task_paths(
+        "preprocessing_dag", "preprocess_audio",
+        read_from=[str(RAW_DIR)],
+        write_to=[str(staged)],
+    )
     from scripts.preprocess_audio import run_preprocessing
     ok, fail = run_preprocessing(raw_subdir=None)
     if fail > 0 and ok == 0:
@@ -23,9 +35,23 @@ def _run_preprocess(**kwargs):
 
 
 def _run_split(**kwargs):
+    import sys
+    _dags_dir = Path(__file__).resolve().parent
+    if str(_dags_dir) not in sys.path:
+        sys.path.insert(0, str(_dags_dir))
+    from dag_logging import log_dag_task_paths
     from scripts.stratified_split import run_split
     from scripts.utils import PROCESSED_DIR
-    return run_split(staged_dir=PROCESSED_DIR / "staged", out_dir=PROCESSED_DIR)
+    staged = PROCESSED_DIR / "staged"
+    dev = PROCESSED_DIR / "dev"
+    test = PROCESSED_DIR / "test"
+    holdout = PROCESSED_DIR / "holdout"
+    log_dag_task_paths(
+        "preprocessing_dag", "stratified_split",
+        read_from=[str(staged)],
+        write_to=[str(dev), str(test), str(holdout)],
+    )
+    return run_split(staged_dir=staged, out_dir=PROCESSED_DIR)
 
 
 _default_args = {

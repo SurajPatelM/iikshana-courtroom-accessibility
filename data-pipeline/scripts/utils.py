@@ -9,10 +9,17 @@ from typing import Any, Optional
 
 import yaml
 
-# Base paths: pipeline lives in data-pipeline/, data lives at repo root data/
+# Base paths:
+# - pipeline code lives in data-pipeline/
+# - data lives under data-pipeline/data/ (shared across CLI and Airflow/Docker)
 PIPELINE_ROOT = Path(__file__).resolve().parent.parent
 REPO_ROOT = Path(os.environ.get("REPO_ROOT", str(PIPELINE_ROOT.parent)))
-DATA_ROOT = REPO_ROOT / "data"
+# DATA_ROOT is the single source of truth for where all stages read/write data.
+# Prefer explicit DATA_ROOT from env; otherwise derive from REPO_ROOT so it is
+# stable even when this file is imported from different locations (/workspace vs /opt/airflow).
+DATA_ROOT = Path(
+    os.environ.get("DATA_ROOT", str(REPO_ROOT / "data-pipeline" / "data"))
+)
 RAW_DIR = DATA_ROOT / "raw"
 PROCESSED_DIR = DATA_ROOT / "processed"
 LEGAL_GLOSSARY_DIR = DATA_ROOT / "legal_glossary"

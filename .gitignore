@@ -213,3 +213,5 @@ data/processed/*
 !data/processed/.gitkeep
 data-pipeline/logs/scheduler/
 data-pipeline/data/raw/*
+# GCP service account key (do not commit)
+data-pipeline/iikshana-mlops-*.json

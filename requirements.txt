@@ -15,7 +15,8 @@ pyyaml>=6.0
 # Data validation
 great-expectations>=0.18.0
 
-# DVC
+# DVC (certifi fixes SSL on macOS when using python.org installer)
+certifi>=2024.0.0
 dvc>=3.30.0
 dvc-gdrive  # optional: for Google Drive remote
 dvc-gs      # optional: for Google Cloud Storage remote

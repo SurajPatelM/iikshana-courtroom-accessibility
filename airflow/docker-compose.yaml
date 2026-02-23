@@ -4,21 +4,23 @@
 # Stop:     docker compose down
 # See: https://airflow.apache.org/docs/apache-airflow/stable/howto/docker-compose/index.html
 
-x-airflow-common:
-  &airflow-common
-  image: apache/airflow:2.7.0-python3.10
-  environment:
-    &airflow-common-env
+x-airflow-common: &airflow-common
+  build: .
+  image: iikshana-airflow:latest
+  environment: &airflow-common-env
     REPO_ROOT: /workspace
+    PIPELINE_ROOT: /workspace/data-pipeline
+    DATA_ROOT: /workspace/data-pipeline/data
+    GOOGLE_APPLICATION_CREDENTIALS: /workspace/data-pipeline/iikshana-mlops-dac50f075ba0.json
     AIRFLOW__CORE__EXECUTOR: LocalExecutor
-    AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
+    AIRFLOW__CORE__LOAD_EXAMPLES: "false"
     AIRFLOW__CORE__DAGS_FOLDER: /opt/airflow/dags
     AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
-    AIRFLOW__CORE__FERNET_KEY: ''
-    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'true'
-    AIRFLOW__CORE__LOAD_DEFAULT_CONNECTIONS: 'false'
-    AIRFLOW__API__AUTH_BACKENDS: 'airflow.api.auth.backend.basic_auth'
-    _PIP_ADDITIONAL_REQUIREMENTS: ${_PIP_ADDITIONAL_REQUIREMENTS:- pandas numpy scipy soundfile librosa pyyaml great-expectations requests tqdm checksumdir }
+    AIRFLOW__CORE__FERNET_KEY: ""
+    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
+    AIRFLOW__CORE__LOAD_DEFAULT_CONNECTIONS: "false"
+    AIRFLOW__API__AUTH_BACKENDS: "airflow.api.auth.backend.basic_auth"
+    _PIP_ADDITIONAL_REQUIREMENTS: ${_PIP_ADDITIONAL_REQUIREMENTS:- pandas numpy scipy soundfile librosa pyyaml great-expectations requests tqdm checksumdir certifi dvc dvc-gs }
   user: "${AIRFLOW_UID:-50000}:0"
   volumes:
     - ./dags:/opt/airflow/dags
@@ -27,8 +29,7 @@ x-airflow-common:
     - ../data-pipeline/config:/opt/airflow/config
     - ../data-pipeline/logs:/opt/airflow/logs
     - airflow-logs:/opt/airflow/airflow_logs
-  depends_on:
-    &airflow-common-depends-on
+  depends_on: &airflow-common-depends-on
     postgres:
       condition: service_healthy
 

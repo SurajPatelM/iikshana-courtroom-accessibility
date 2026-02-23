@@ -17,8 +17,19 @@ if str(PIPELINE_ROOT) not in sys.path:
 
 
 def _run_gemini_verification(**kwargs):
+    import sys
+    _dags_dir = Path(__file__).resolve().parent
+    if str(_dags_dir) not in sys.path:
+        sys.path.insert(0, str(_dags_dir))
+    from dag_logging import log_dag_task_paths
     from scripts.verify_gemini_audio import run_verification, EXIT_FAILURE
     from scripts.utils import PROCESSED_DIR
+    log_dag_task_paths(
+        "gemini_verification_dag", "verify_gemini_audio",
+        read_from=[str(PROCESSED_DIR)],
+        write_to=[],
+        extra={"prefer_split": "staged", "max_files": 2},
+    )
     result = run_verification(data_dir=PROCESSED_DIR, max_files=2, prefer_split="staged", force_run=False)
     if result.get("skipped"):
         return result

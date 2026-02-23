@@ -14,9 +14,20 @@ if str(PIPELINE_ROOT) not in sys.path:
 
 
 def _run_bias_detection(**kwargs):
+    import sys
+    _dags_dir = Path(__file__).resolve().parent
+    if str(_dags_dir) not in sys.path:
+        sys.path.insert(0, str(_dags_dir))
+    from dag_logging import log_dag_task_paths
     from scripts.detect_bias import run_bias_analysis
     from scripts.utils import PROCESSED_DIR
-    return run_bias_analysis(data_dir=PROCESSED_DIR, report_path=PROCESSED_DIR / "bias_report.json")
+    report_path = PROCESSED_DIR / "bias_report.json"
+    log_dag_task_paths(
+        "bias_detection_dag", "detect_bias_and_report",
+        read_from=[str(PROCESSED_DIR)],
+        write_to=[str(report_path)],
+    )
+    return run_bias_analysis(data_dir=PROCESSED_DIR, report_path=report_path)
 
 
 _default_args = {

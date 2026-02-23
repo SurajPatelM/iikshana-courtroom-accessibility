@@ -1,0 +1,13 @@
+# Copy to .dvc/config.local and set your GCS bucket.
+# config.local is gitignored so your bucket name is not committed.
+#
+# cp .dvc/config.local.example .dvc/config.local
+# Then edit config.local and replace YOUR_GCS_BUCKET with your bucket name.
+#
+# Or from the repo root run:
+#   dvc remote add -d storage gs://YOUR_GCS_BUCKET/dvc --local
+
+['core']
+    remote = storage
+['remote "storage"']
+    url = gs://YOUR_GCS_BUCKET/dvc
