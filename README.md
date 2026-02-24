@@ -1,18 +1,15 @@
-# Iikshana: On-Prem Courtroom Language Access System  
+## Iikshana: On-Prem Courtroom Language Access System
 ### ADA-Aligned Audio Accessibility (Assistive, Not Authoritative)
 
-Iikshana is an **on-prem, AI-assisted courtroom accessibility system** designed to improve real-time spoken-language access for participants who are blind but can hear.  
+Iikshana is an **on-prem, AI-assisted courtroom accessibility system** that provides real-time spoken-language support for participants who are blind but can hear.
 
-The system provides **live speech recognition, translation, and audio playback**, while preserving interpreter authority and court data sovereignty.
+The system offers **live speech recognition, translation, and audio playback**, while preserving interpreter authority and court data sovereignty.
 
-> This system is assistive only.  
-> It does NOT replace certified interpreters.  
-> It does NOT produce official court records.  
-> All outputs require human oversight.
+> **Assistive only** — does **not** replace certified interpreters, does **not** produce official court records, and may require human oversight.
 
 ---
 
-# Team — Group 16 (IE7374 MLOps)
+### Team — Group 16 (IE7374 MLOps)
 
 - Aditya Vasisht  
 - Akshata Kumble  
@@ -23,135 +20,244 @@ The system provides **live speech recognition, translation, and audio playback**
 
 ---
 
-# System Scope
+## Project Overview
 
-## What the system does
+### What the system does
 
-1. Capture live courtroom audio (Judge / Witness channels)
-2. Convert speech → text (Google Speech-to-Text)
-3. Translate text (Google Translation / Gemini)
-4. Convert translated text → speech (Google Text-to-Speech)
-5. Stream audio back to listener in real time
-
-## What the system does NOT do
-
-- No visual accessibility features (no OCR, no braille)
-- No transcript storage for record-keeping
-- No automated legal summarization
-- No certification of interpretation
-- No external data transmission
+1. Captures live courtroom audio (e.g., judge and witness channels).
+2. Converts speech → text (speech-to-text).
+3. Translates text between languages.
+4. Converts translated text → speech (text-to-speech).
+5. Streams assistive audio back to the listener in near real time.
 
 ---
 
-# On-Prem Data Policy
+## Data & Deployment Principles
 
-This system is designed for **local deployment only**.
+### On-Prem Data Policy
 
-- 100% of processing occurs on-prem
-- No outbound API calls with courtroom audio
-- No storage of live courtroom recordings
-- No reuse of operational audio for training
+The system is designed for **local, on-premises deployment only**:
 
-Public research datasets are used only for offline benchmarking.
+- 100% of processing occurs on-prem.
+- No outbound API calls with live courtroom audio.
+- No storage of live courtroom recordings.
+- No reuse of operational audio for training.
+- Public research datasets are used **only** for offline benchmarking.
 
----
+### Input Pipeline (Deterministic Preprocessing)
 
-# Architecture Overview
+Audio undergoes minimal, inference-style preprocessing before model or API calls:
 
-## Input Pipeline (Deterministic Preprocessing)
+- Conversion to 16 kHz mono WAV.
+- Loudness normalization.
+- Optional silence trimming.
+- Format and basic-quality validation.
 
-Audio undergoes minimal signal hygiene before model inference:
-
-- Convert to 16 kHz mono WAV
-- Loudness normalization
-- Silence trimming (optional)
-- Format validation
-
-No enhancement, denoising, or content modification is applied.
-
-Purpose: Ensure stable model input across devices and microphones.
+No enhancement, denoising, or content modification is applied.  
+**Goal:** stable, predictable input for models and APIs across devices and microphones.
 
 ---
 
-## Model Inference
+## Architecture Overview
 
-### 1. Speech-to-Text
-- Streaming transcription
-- Confidence scoring
-- Optional speaker attribution
+The system is organized into three main layers:
 
-### 2. Translation
-- Automatic language detection
-- Legal glossary enforcement
-- Confidence preservation
-- Timestamp alignment
+- **Backend**: FastAPI-based backend orchestrating AI agents, Gemini calls, and WebSocket streaming.
+- **Frontend**: React PWA with WCAG 2.1 Level AAA–oriented design for blind or low-vision participants.
+- **Data Pipeline**: Inference-style data pipeline for evaluation, bias analysis, and quality checks using Airflow, DVC, and Great Expectations–style validation.
 
-### 3. Text-to-Speech
-- Immediate audio playback
-- No post-processing on generated audio
+### High-Level Flow
 
----
+1. **Audio Capture** → microphone / courtroom audio feed.
+2. **Preprocessing** → convert to standard 16 kHz mono, normalize, validate.
+3. **Speech-to-Text** → streaming transcription with confidence scoring.
+4. **Translation** → multilingual translation with legal glossary enforcement.
+5. **Text-to-Speech** → low-latency audio output back to the listener.
+6. **Human-in-the-loop** → interpreters may override or correct any output.
 
-## Human-in-the-Loop Safeguards
+### Human-in-the-Loop Safeguards
 
-- Human interpreters may override outputs at any time
-- Low-confidence segments are flagged
-- System never claims "official" translation
-- AI output clearly labeled as assistive
+- Human interpreters can override outputs at any time.
+- Low-confidence segments are flagged for review.
+- System never claims official or authoritative translation.
+- AI output is always labeled as **assistive**.
 
 ---
 
 ## Repository Structure
-```
+
+```text
 iikshana-courtroom-accessibility/
-├── backend/
+├── backend/                 # FastAPI backend + AI agents
 │   └── src/
-│       ├── agents/          # 6 AI agents + orchestrator
-│       ├── services/        # Gemini, TTS, WebSocket
-│       ├── api/             # Routes, handlers
-│       └── main.py
-├── frontend/
-│   └── src/
-│       ├── components/      # React UI (WCAG AAA)
-│       ├── services/        # API clients
-│       ├── hooks/           # Custom hooks
-│       └── App.tsx
-├── data/
-│   ├── legal_glossary/      # 500+ legal terms
-│   └── raw/                 # Evaluation datasets
-├── docs/                    # Architecture, API docs
-└── config/                  # Environment configs
+│       ├── agents/          # Agentic orchestration (Gemini, translation, etc.)
+│       ├── api/             # HTTP + WebSocket handlers
+│       ├── models/          # Schemas, enums, backend README
+│       ├── services/        # Gemini, TTS, WebSocket, utilities
+│       └── main.py          # Backend entry point (FastAPI app)
+├── frontend/                # React PWA (WCAG-oriented UI)
+│   ├── src/
+│   │   ├── components/      # Accessible components and layouts
+│   │   ├── services/        # API clients, WebSocket client
+│   │   ├── hooks/           # Custom React hooks
+│   │   └── App.tsx
+│   └── README.md            # Frontend-specific instructions
+├── data/                    # Evaluation and glossary data (no live court data)
+│   ├── legal_glossary/      # Legal terms and glossaries
+│   └── README.md
+├── data-pipeline/           # Data pipeline (scripts, tests, config)
+│   ├── scripts/             # Acquisition, preprocessing, validation, evaluation
+│   ├── tests/               # Preprocessing / validation / split tests
+│   ├── config/              # Dataset configuration
+│   └── README.md
+├── airflow/                 # Airflow DAGs + Docker setup for pipeline
+│   ├── dags/                # full_pipeline_dag and stage DAGs
+│   ├── docker-compose.yaml
+│   └── README.md
+├── docs/                    # Design and usage documentation
+│   ├── architecture.md
+│   ├── api_documentation.md
+│   ├── user_manual.md
+│   ├── deployment_guide.md
+│   └── agent_specifications.md
+├── config/                  # Environment-specific app configuration
+│   ├── development.yaml
+│   ├── testing.yaml
+│   └── production.yaml
+└── requirements.txt         # Data pipeline / tooling deps (Python 3.10+)
 ```
 
 ---
 
-# Quick Start (Development)
+## Getting Started
 
-## Backend
+### Prerequisites
+
+- **Python**: 3.10+  
+- **Node.js**: 18+ (for the React frontend)  
+- **npm**: comes with Node  
+- **Docker + Docker Compose** (for Airflow-based pipeline orchestration; optional but recommended)  
+
+> For production or realistic evaluation, ensure a machine with sufficient CPU/RAM, low-latency audio IO, and restricted network egress.
+
+---
+
+### 1. Clone the repository
+
+```bash
+git clone https://github.com/SurajPatelM/iikshana-courtroom-accessibility.git
+cd iikshana-courtroom-accessibility
+```
+
+---
+
+### 2. Set up the Python environment (data pipeline and tooling)
+
+From the **repository root**:
+
+```bash
+python -m venv .venv
+# Windows
+.venv\Scripts\activate
+# macOS/Linux
+source .venv/bin/activate
+
+pip install --upgrade pip
+pip install -r requirements.txt
+```
+
+The root `requirements.txt` contains dependencies used by the **data pipeline**, Airflow integration, and related tooling (e.g., numpy, pandas, DVC, Fairlearn, Gemini client).
+
+For detailed pipeline usage, see `data-pipeline/README.md`.
+
+---
+
+### 3. Run the backend API (FastAPI prototype)
+
+From the **repository root**, in a separate terminal:
 
 ```bash
 cd backend
 python -m venv .venv
-source .venv/bin/activate   # or .venv\Scripts\activate on Windows
-pip install -r requirements.txt
-uvicorn main:app --reload
+# Windows
+.venv\Scripts\activate
+# macOS/Linux
+source .venv/bin/activate
+
+# Install backend dependencies (example; adjust as needed)
+pip install fastapi uvicorn[standard] google-genai websockets pydantic python-dotenv
 ```
+
+Then start the backend:
+
+```bash
+python src/main.py
+# or, once the FastAPI app is wired:
+# uvicorn src.main:app --reload
+```
+
+By default this will expose a FastAPI app (and WebSocket endpoints) on `http://localhost:<port>` as configured in `src/main.py` and `config/*.yaml`.
+
+For backend internals and tests, see `backend/src/models/README.md` and `backend/tests/`.
+
 ---
 
-## Frontend
+### 4. Run the frontend (React PWA)
+
+From the **repository root**, in another terminal:
+
 ```bash
 cd frontend
 npm install
-npm run dev
+npm start
 ```
+
+This will start the React app (Create React App / React Scripts) on `http://localhost:3000` by default.
+
+**Features:**
+
+- High-contrast themes and keyboard-friendly navigation.
+- Screen-reader-first flows for blind participants.
+- Real-time status indicators for connection and translation state.
+
+For more details, see `frontend/README.md`.
 
 ---
 
-## Evaluation & Monitoring
+### 5. Airflow + Data Pipeline (optional, for evaluation and bias analysis)
 
-The system is evaluated using public datasets and synthetic courtroom-style audio.
+The data pipeline uses **Apache Airflow**, **DVC**, and validation tooling to:
 
-### Core Metrics
+- Download and preprocess public speech / emotion datasets.
+- Enforce inference-style preprocessing (16 kHz mono, normalization).
+- Validate API-input quality (schema + statistics).
+- Run evaluation against APIs (STT, translation, emotion).
+- Detect bias and anomalies across slices (emotion, speaker, etc.).
+
+#### 5.1 Set up pipeline dependencies
+
+You already installed the root `requirements.txt` in step 2, which covers the data-pipeline scripts and most tools.
+
+#### 5.2 Start Airflow via Docker
+
+From the **repository root**:
+
+```bash
+cd airflow
+bash setup.sh          # one-time: .env + airflow-init
+docker compose up      # Airflow web UI at http://localhost:8080
+```
+
+- Default login: **username** `airflow`, **password** `airflow` (configurable in `.env`).
+- DAGs live in `airflow/dags/` and orchestrate the data pipeline defined in `data-pipeline/`.
+
+For details on DAGs, data layout, and troubleshooting, see `airflow/README.md` and `data-pipeline/README.md`.
+
+---
+
+## Evaluation, Monitoring, and Bias
+
+### Core Metrics (example targets)
 
 | Metric                    | Target        |
 |---------------------------|--------------|
@@ -161,55 +267,47 @@ The system is evaluated using public datasets and synthetic courtroom-style audi
 | Glossary enforcement      | ≥ 95%        |
 | Interpreter override rate | < 20%        |
 
+### Bias Detection
+
+The pipeline can produce reports such as `data/processed/bias_report.json` with:
+
+- Per-emotion and per-speaker counts.
+- Fairlearn-based per-group metrics.
+- Detected disparities and mitigation recommendations.
+
+See `data-pipeline/README.md` for how to run:
+
+- `scripts/detect_bias.py`
+- `scripts/evaluate_models.py`
+- `scripts/anomaly_check.py`
+
 ---
 
-## Pipeline Vulnerability Assessment
-
-| Stage              | Risk                      | Mitigation                     |
-|-------------------|---------------------------|---------------------------------|
-| Audio Capture      | Background noise          | Confidence gating               |
-| Speech-to-Text     | Accent / emotion drift    | Flag low-confidence segments    |
-| Translation        | Legal term distortion     | Legal glossary enforcement      |
-| Language Detection | Incorrect language inference | Human confirmation fallback |
-| TTS Routing        | Output routed to wrong party | Strict channel separation   |
-| Deployment         | Data leakage              | On-prem firewall, no egress     |
-
----
 
 ## Standards Alignment
 
-This project aligns with:
+The project is designed with reference to:
 
-- ADA Title II (Effective Communication)
-- DOJ Language Access Guidance
-- NCSC Court Technology Guidance
-- NIST AI Risk Management Framework
-
----
-
-## Data Usage Statement
-
-The system uses:
-
-- Public research datasets (offline benchmarking only)
-- No operational courtroom audio stored
-- No training on live court data
+- ADA Title II (Effective Communication).
+- US DOJ Language Access Guidance.
++- NCSC Court Technology Guidance.
+- NIST AI Risk Management Framework.
 
 ---
 
 ## Important Disclaimer
 
-Iikshana is a research prototype developed for IE7374 (MLOps).
+Iikshana is a **research prototype** developed for the Northeastern course IE7374 (MLOps).
 
 It is:
 
-- Assistive
-- Non-authoritative
-- Not legally certified
-- Subject to human review
+- **Assistive**, not authoritative.
+- **Not** a certified assistive technology device.
+- **Not** legally certified for courtroom use.
+- Always subject to **human review and oversight**.
 
 ---
 
-## License
+## License / Intended Use
 
-Academic project use only.
+This repository is intended for **academic and research use only**.  
