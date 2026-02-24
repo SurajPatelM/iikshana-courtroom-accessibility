@@ -27,6 +27,22 @@ if ! grep -q "_AIRFLOW_WWW_USER_USERNAME" .env 2>/dev/null; then
   echo "Added default credentials to .env (airflow/airflow)"
 fi
 
+# DVC + GCS (optional): full_pipeline_dag runs dvc_pull/dvc_push when these are set
+if ! grep -q "DVC_GCS_BUCKET" .env 2>/dev/null; then
+  echo "# DVC: set your GCS bucket name to enable dvc pull/push in full_pipeline_dag" >> .env
+  echo "# DVC_GCS_BUCKET=your-bucket-name" >> .env
+fi
+if ! grep -q "GOOGLE_APPLICATION_CREDENTIALS" .env 2>/dev/null; then
+  echo "# GCS credentials path (repo root .secrets/; create from GCP service account key)" >> .env
+  echo "# GOOGLE_APPLICATION_CREDENTIALS=/workspace/.secrets/gcp-dvc-key.json" >> .env
+fi
+
+# Ensure repo root has .secrets for GCP key (optional)
+mkdir -p "$SCRIPT_DIR/../.secrets"
+if [ ! -f "$SCRIPT_DIR/../.secrets/gcp-dvc-key.json" ]; then
+  echo "Note: For DVC+GCS, place your GCP service account key at repo root: .secrets/gcp-dvc-key.json"
+fi
+
 echo "Created/updated .env. Initializing Airflow DB and admin user..."
 docker compose up airflow-init
 
