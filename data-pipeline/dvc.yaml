@@ -4,7 +4,7 @@
 
 stages:
   download:
-    cmd: python scripts/download_datasets.py
+    cmd: python -m scripts.download_datasets
     deps:
       - scripts/download_datasets.py
       - scripts/utils.py
@@ -13,7 +13,7 @@ stages:
       - ../data/raw
 
   preprocess:
-    cmd: python scripts/preprocess_audio.py && python scripts/stratified_split.py
+    cmd: python -m scripts.preprocess_audio && python -m scripts.stratified_split
     deps:
       - scripts/preprocess_audio.py
       - scripts/stratified_split.py
@@ -26,26 +26,32 @@ stages:
       - ../data/processed/holdout
 
   validate:
-    cmd: python scripts/validate_schema.py
+    cmd: python -m scripts.validate_schema
     deps:
       - scripts/validate_schema.py
-      - ../data/processed
+      - ../data/processed/dev
+      - ../data/processed/test
+      - ../data/processed/holdout
     outs:
       - ../data/processed/audio_schema.json
       - ../data/processed/quality_report.json
 
   bias:
-    cmd: python scripts/detect_bias.py
+    cmd: python -m scripts.detect_bias
     deps:
       - scripts/detect_bias.py
-      - ../data/processed
+      - ../data/processed/dev
+      - ../data/processed/test
+      - ../data/processed/holdout
     outs:
       - ../data/processed/bias_report.json
 
   evaluate:
-    cmd: python scripts/evaluate_models.py
+    cmd: python -m scripts.evaluate_models
     deps:
       - scripts/evaluate_models.py
-      - ../data/processed
+      - ../data/processed/dev
+      - ../data/processed/test
+      - ../data/processed/holdout
     outs:
       - ../data/processed/evaluation_metrics.json

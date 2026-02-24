@@ -53,11 +53,12 @@ See **`airflow/README.md`** for details. Allocate at least 4GB memory for Docker
 
 ### 3. DVC (data versioning)
 
+DVC is initialized in `data-pipeline/`. For **Airflow + GCS** (bucket name, project, credentials), see **`airflow/README.md`** → “DVC and GCS”.
+
 ```bash
 pip install dvc dvc-gs   # dvc-gs for Google Cloud Storage
 cd data-pipeline
-dvc init
-# Optional: add remote (GCS or local)
+# dvc init already run; add remote when using GCS (or set DVC_GCS_BUCKET in airflow/.env for full_pipeline_dag)
 # dvc remote add -d storage gs://your-bucket/dvc
 ```
 

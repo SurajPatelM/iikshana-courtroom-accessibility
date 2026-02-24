@@ -1,0 +1,95 @@
+schema: '2.0'
+stages:
+  download:
+    cmd: python -m scripts.download_datasets
+    deps:
+    - path: config/datasets.yaml
+      hash: md5
+      md5: 8614cf21c3af4f5e063a007c6a580750
+      size: 2796
+    - path: scripts/download_datasets.py
+      hash: md5
+      md5: b1a463b8cdc38622ab3a04545afbd9f1
+      size: 3875
+    - path: scripts/utils.py
+      hash: md5
+      md5: c86dd7c5f8a26b8199d5241619ced6e2
+      size: 1647
+    outs:
+    - path: ../data/raw
+      hash: md5
+      md5: 4e0d9766e5702ac7ae66e78abecbe23f.dir
+      size: 798910103
+      nfiles: 1442
+  preprocess:
+    cmd: python -m scripts.preprocess_audio && python -m 
+      scripts.stratified_split
+    deps:
+    - path: ../data/raw
+      hash: md5
+      md5: 4e0d9766e5702ac7ae66e78abecbe23f.dir
+      size: 798910103
+      nfiles: 1442
+    - path: config/datasets.yaml
+      hash: md5
+      md5: 8614cf21c3af4f5e063a007c6a580750
+      size: 2796
+    - path: scripts/preprocess_audio.py
+      hash: md5
+      md5: 93017ed4f9a188c4242baab7fd9c2013
+      size: 17690
+    - path: scripts/stratified_split.py
+      hash: md5
+      md5: 5b98a83cefd6d888e564227e5e600b68
+      size: 6609
+    - path: scripts/utils.py
+      hash: md5
+      md5: c86dd7c5f8a26b8199d5241619ced6e2
+      size: 1647
+    outs:
+    - path: ../data/processed/dev
+      hash: md5
+      md5: 401eb2ed9ca33e9a7a364bf40a918836.dir
+      size: 15176976
+      nfiles: 241
+    - path: ../data/processed/holdout
+      hash: md5
+      md5: df085df377fbbf9c0ae56b054075a2fc.dir
+      size: 6390124
+      nfiles: 121
+    - path: ../data/processed/test
+      hash: md5
+      md5: db01c53d98dff6d0093aec0af6886343.dir
+      size: 61991788
+      nfiles: 1081
+  validate:
+    cmd: python -m scripts.validate_schema
+    deps:
+    - path: ../data/processed/dev
+      hash: md5
+      md5: 401eb2ed9ca33e9a7a364bf40a918836.dir
+      size: 15176976
+      nfiles: 241
+    - path: ../data/processed/holdout
+      hash: md5
+      md5: df085df377fbbf9c0ae56b054075a2fc.dir
+      size: 6390124
+      nfiles: 121
+    - path: ../data/processed/test
+      hash: md5
+      md5: db01c53d98dff6d0093aec0af6886343.dir
+      size: 61991788
+      nfiles: 1081
+    - path: scripts/validate_schema.py
+      hash: md5
+      md5: 9362d28a2a23aadfa94fc75d4c3d0c12
+      size: 5005
+    outs:
+    - path: ../data/processed/audio_schema.json
+      hash: md5
+      md5: eccd7470dbc3715ebfc24b9b7c189048
+      size: 630
+    - path: ../data/processed/quality_report.json
+      hash: md5
+      md5: e81990d35ac4c3d532eea6e48c9a8c07
+      size: 416029
