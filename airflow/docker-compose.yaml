@@ -18,8 +18,19 @@ x-airflow-common: &airflow-common
     AIRFLOW__API__AUTH_BACKENDS: "airflow.api.auth.backend.basic_auth"
     _PIP_ADDITIONAL_REQUIREMENTS: ${_PIP_ADDITIONAL_REQUIREMENTS:- pandas numpy scipy soundfile librosa pyyaml great-expectations requests tqdm checksumdir dvc dvc-gs google-genai }
     # DVC + GCS: set in airflow/.env (DVC_GCS_BUCKET=your-bucket, GOOGLE_APPLICATION_CREDENTIALS path)
-    GOOGLE_APPLICATION_CREDENTIALS: /opt/airflow/.secrets/gcp-dvc-key.json
+    GOOGLE_APPLICATION_CREDENTIALS: ${GOOGLE_APPLICATION_CREDENTIALS:-/opt/airflow/.secrets/gcp-dvc-key.json}
     DVC_GCS_BUCKET: ${DVC_GCS_BUCKET:-}
+    # Alerts (optional): email on failure + Slack webhook
+    ALERT_EMAIL: ${ALERT_EMAIL:-}
+    SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
+    # SMTP for email_on_failure (optional; set in .env to enable)
+    AIRFLOW__SMTP__SMTP_HOST: ${AIRFLOW__SMTP__SMTP_HOST:-}
+    AIRFLOW__SMTP__SMTP_PORT: ${AIRFLOW__SMTP__SMTP_PORT:-587}
+    AIRFLOW__SMTP__SMTP_USER: ${AIRFLOW__SMTP__SMTP_USER:-}
+    AIRFLOW__SMTP__SMTP_PASSWORD: ${AIRFLOW__SMTP__SMTP_PASSWORD:-}
+    AIRFLOW__SMTP__SMTP_MAIL_FROM: ${AIRFLOW__SMTP__SMTP_MAIL_FROM:-}
+    AIRFLOW__SMTP__SMTP_STARTTLS: ${AIRFLOW__SMTP__SMTP_STARTTLS:-true}
+    AIRFLOW__SMTP__SMTP_SSL: ${AIRFLOW__SMTP__SMTP_SSL:-false}
   user: "${AIRFLOW_UID:-50000}:0"
   volumes:
     - ./dags:/opt/airflow/dags

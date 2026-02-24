@@ -1,19 +1,21 @@
 """
-Anomaly Detection DAG (PDF §2.8, §6): run anomaly checks; on failure trigger alert via Airflow email.
-Configure email in Airflow (smtp) so that when anomalies are detected the task fails and email is sent.
+Anomaly Detection DAG (PDF §2.8, §6): run anomaly checks; on failure trigger alert via email and Slack.
+Configure SMTP in .env (AIRFLOW__SMTP__*) and optional ALERT_EMAIL, SLACK_WEBHOOK_URL.
 """
+import os
+import sys
+from pathlib import Path
 from datetime import datetime, timedelta
 
 from airflow import DAG
 from airflow.operators.python import PythonOperator
 
-import sys
-from pathlib import Path
-
 _DAG_DIR = Path(__file__).resolve().parent
 PIPELINE_ROOT = _DAG_DIR.parent
 if str(PIPELINE_ROOT) not in sys.path:
     sys.path.insert(0, str(PIPELINE_ROOT))
+
+from callbacks import slack_alert_on_failure
 
 
 def _ensure_scripts_on_path():
@@ -50,14 +52,27 @@ def _run_anomaly_checks(**kwargs):
     return report
 
 
+def _alert_emails() -> list[str]:
+    """Parse ALERT_EMAIL env (comma-separated) for email_on_failure recipients."""
+    raw = os.environ.get("ALERT_EMAIL", "").strip()
+    if not raw:
+        return []
+    return [e.strip() for e in raw.split(",") if e.strip()]
+
+
 _default_args = {
     "owner": "iikshana",
     "depends_on_past": False,
     "retries": 1,
     "retry_delay": timedelta(minutes=2),
-    "email_on_failure": True,  # PDF §2.8: trigger alert (e.g. email) when anomalies detected
+    "email_on_failure": True,  # PDF §2.8: trigger alert when anomalies detected
     "email_on_retry": False,
+    "on_failure_callback": slack_alert_on_failure,
 }
+# Add email recipients if configured (Airflow sends to these when task fails)
+_emails = _alert_emails()
+if _emails:
+    _default_args["email"] = _emails
 
 
 def get_tasks(dag: DAG):

@@ -127,9 +127,21 @@ If `DVC_GCS_BUCKET` is not set, DVC tasks (`dvc_pull`, `dvc_push`) are treated a
   - Identify bottlenecks (e.g., slow dataset downloads).
   - Parallelize independent tasks where safe.
 - Each task logs to Airflow’s logging system; see per-task logs in the UI.
-- When `anomaly_detection_dag` fails, you can connect:
-  - **Email alerts** via Airflow’s `[email]` configuration.
-  - **Slack alerts** using an `on_failure_callback` and a Slack webhook.
+
+### Alerts on failure (anomaly_detection_dag and task failures)
+
+When a task fails (e.g. anomalies detected), alerts can be sent via **email** and **Slack**:
+
+1. **Email**  
+   In `airflow/.env` set SMTP and recipient list:
+   - `AIRFLOW__SMTP__SMTP_HOST`, `AIRFLOW__SMTP__SMTP_PORT`, `AIRFLOW__SMTP__SMTP_USER`, `AIRFLOW__SMTP__SMTP_PASSWORD`, `AIRFLOW__SMTP__SMTP_MAIL_FROM` (see [Airflow email config](https://airflow.apache.org/docs/apache-airflow/stable/howto/email-config.html)).
+   - `ALERT_EMAIL=you@example.com,other@example.com` (comma-separated; these receive failure emails).
+   Restart: `docker compose down && docker compose up -d`.
+
+2. **Slack**  
+   Create an [Incoming Webhook](https://api.slack.com/messaging/webhooks) in your Slack workspace, then in `airflow/.env` set:
+   - `SLACK_WEBHOOK_URL=https://hooks.slack.com/services/YOUR/WEBHOOK/URL`
+   The `anomaly_detection_dag` uses `on_failure_callback` in `dags/callbacks.py` to post a message on task failure. Restart containers after changing `.env`.
 
 
 ---
