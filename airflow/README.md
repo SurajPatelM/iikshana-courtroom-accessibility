@@ -1,70 +1,140 @@
-# Airflow (Iikshana pipeline orchestration)
+# Airflow (Iikshana Pipeline Orchestration)
 
-DAGs and Docker setup for running the data pipeline. Pipeline code (scripts, config) lives in **`../data-pipeline/`** and is mounted into the container; data is stored at **repo root `../data/`** and mounted as `/workspace/data`.
+This directory contains **Apache Airflow** configuration and DAGs for the Iikshana data pipeline
 
-## Quick start
+- End-to-end **pipeline orchestration** (data acquisition → preprocessing → validation → evaluation → bias / anomaly checks).
+- **Tracking & logging** of each task.
+- **Flow optimization** using Airflow’s Gantt chart.
+
+Pipeline code (scripts, tests, config) lives in `../data-pipeline/` and is mounted into the container. Data lives at repo root `../data/` and is mounted as `/workspace/data`.
+
+---
+
+## Quick Start (Docker Compose)
 
 From this directory (`airflow/`):
 
 ```bash
 bash setup.sh          # one-time: .env + airflow-init
-docker compose up      # start; then http://localhost:8080 (airflow / airflow)
+docker compose up      # start webserver, scheduler, DB
 ```
 
-Stop: `Ctrl+C`, then `docker compose down`. Reset DB: `docker compose down -v`.
+Then open `http://localhost:8080` in your browser.
+
+- Default login (can be changed in `.env`):  
+  - **Username**: `airflow`  
+  - **Password**: `airflow`
+
+Stop: `Ctrl+C`, then:
+
+```bash
+docker compose down          # stop containers
+docker compose down -v       # stop + reset DB (if needed)
+```
+
+Allocate **4–8 GB RAM** to Docker for smooth dataset downloads and processing.
+
+---
 
 ## Layout
 
-- **`dags/`** – Airflow DAGs (full_pipeline_dag, data_acquisition_dag, etc.)
-- **`docker-compose.yaml`** – Postgres + webserver + scheduler; mounts repo root as `/workspace`, and `../data-pipeline/scripts`, `config`, `logs`
-- **`setup.sh`** – One-time setup (AIRFLOW_UID, credentials, `docker compose up airflow-init`)
-- **`.env.example`** – Template for `.env` (credentials; `.env` is gitignored)
+- `dags/` – All DAG definitions:
+  - `full_pipeline_dag.py`
+  - `data_acquisition_dag.py`
+  - `preprocessing_dag.py`
+  - `validation_dag.py`
+  - `gemini_verification_dag.py` (optional)
+  - `bias_detection_dag.py`
+  - `evaluation_dag.py`
+  - `anomaly_detection_dag.py`
+- `docker-compose.yaml` – Postgres, webserver, scheduler; mounts:
+  - Repo root as `/workspace`
+  - `../data-pipeline/` scripts, config, and logs
+- `setup.sh` – One-time initialization (`.env`, `AIRFLOW_UID`, `airflow-init`)
+- `.env.example` – Template for environment variables (copy to `.env`)
 
-## Where does data go?
+These DAGs orchestrate the same stages described in `data-pipeline/README.md`.
 
-When **data_acquisition_dag** runs, it downloads datasets into **repo root `data/raw/`** (RAVDESS, MELD, EMO-DB, etc. — see `data-pipeline/config/datasets.yaml` for URLs). Inside the container the path is `/workspace/data/raw`; the repo root is mounted as `/workspace`, so files appear in **`data/raw/`** on your machine. The repo keeps those folders in git via **`.gitkeep`** files: `data/.gitkeep`, `data/raw/.gitkeep`, `data/processed/.gitkeep`. If the folder stays empty, check the **download_datasets** task logs in the Airflow UI for errors and the logged `RAW_DIR` path; see **data-pipeline/README.md** (“Data folders and verifying acquisition”) to test the download script without Airflow.
+### DAGs Overview
 
-## Login
+- **`full_pipeline_dag`**: Runs the entire pipeline end-to-end (acquisition → preprocessing → validation → evaluation → bias + anomaly checks, plus optional DVC pull/push).
+- **`data_acquisition_dag`**: Downloads all required datasets into `data/raw/` according to `data-pipeline/config/datasets.yaml`.
+- **`preprocessing_dag`**: Runs inference-style preprocessing and creates stratified `dev` / `test` / `holdout` splits.
+- **`validation_dag`**: Generates schema and statistics, runs validation checks (including Great-Expectations-style reports).
+- **`gemini_verification_dag`** (optional): Sends a small sample of preprocessed audio to the Gemini API to verify that the pipeline output is accepted end-to-end.
+- **`bias_detection_dag`**: Performs data slicing and bias analysis, writing `bias_report.json` under `data/processed/`.
+- **`evaluation_dag`**: Runs API-based evaluation (e.g., STT, translation, emotion) and computes metrics such as WER, BLEU, and F1.
+- **`anomaly_detection_dag`**: Detects anomalies (missing files, distribution shifts, schema violations) and fails the DAG so Airflow can trigger alerts.
 
-Default after `setup.sh`: **Username** `airflow`, **Password** `airflow` (override in `.env`).
+---
 
-## DVC and GCS (optional)
+## Data Locations
 
-The **full_pipeline_dag** can pull data from GCS at the start and push it at the end. This only runs when the following are set.
+Inside the container:
 
-### Where to put the GCS bucket name and project
+- Code: `/workspace/data-pipeline/`
+- Data: `/workspace/data/`
 
-| What | Where |
-|------|--------|
-| **GCS bucket name** | In **`airflow/.env`**: set `DVC_GCS_BUCKET=your-bucket-name` (no `gs://`). The DAG uses it as `gs://${DVC_GCS_BUCKET}/dvc`. |
-| **GCP project** | In your **service account JSON key file** (field `project_id`). You do not set the project name in Airflow; DVC/GCS use the project from the credentials. |
+On your machine (repo root):
 
-### Setup
+- `data/raw/` – Raw downloads (RAVDESS, MELD, EMO-DB, etc.)
+- `data/processed/` – Preprocessed audio, splits, reports
 
-1. **Credentials**  
-   Place your GCP service account key at **repo root**: **`.secrets/gcp-dvc-key.json`** (the repo root is mounted as `/workspace` in Docker).  
-   In **`airflow/.env`** set (or leave default):
+When **`data_acquisition_dag`** runs, it writes directly into `data/raw/`.  
+If `data/raw/` stays empty, inspect the **`download_datasets`** task logs in the Airflow UI and compare the `RAW_DIR` path with your repo.
+
+---
+
+## DVC & GCS Integration (Optional)
+
+The `full_pipeline_dag` can run **DVC pull / push** steps against a Google Cloud Storage remote so that data is versioned and shared across machines.
+
+1. **Credentials**
+
+   - Place your service account key at repo root: `.secrets/gcp-dvc-key.json` (gitignored).
+   - In `airflow/.env`:
+
    ```bash
    GOOGLE_APPLICATION_CREDENTIALS=/workspace/.secrets/gcp-dvc-key.json
    ```
-   Do not commit `.secrets/` (it is in `.gitignore`).
 
-2. **Bucket name**  
-   In **`airflow/.env`** set:
+2. **Bucket name**
+
+   In `airflow/.env`:
+
    ```bash
-   DVC_GCS_BUCKET=your-actual-bucket-name
+   DVC_GCS_BUCKET=your-bucket-name   # without gs://
    ```
 
-3. **Rebuild**  
-   After adding `dvc` and `dvc-gs` (they are in `docker-compose.yaml`), (re)build so the image has them:
+   DAGs will use `gs://${DVC_GCS_BUCKET}/dvc` as the remote.
+
+3. **Install DVC in the image**
+
+   Ensure `dvc` and `dvc-gs` are available via `docker-compose.yaml` or `_PIP_ADDITIONAL_REQUIREMENTS`, then rebuild:
+
    ```bash
    docker compose build --no-cache
    ```
-   Or rely on the image’s `_PIP_ADDITIONAL_REQUIREMENTS` if your setup installs them at startup.
 
-If `DVC_GCS_BUCKET` is not set, **dvc_pull** and **dvc_push** tasks no-op (exit 0) and the rest of the pipeline runs unchanged.
+If `DVC_GCS_BUCKET` is not set, DVC tasks (`dvc_pull`, `dvc_push`) are treated as no-ops and the rest of the pipeline still runs.
+
+---
+
+## Monitoring, Logging, and Optimization
+
+- Use the **DAG graph** and **Gantt chart** to:
+  - Inspect task durations.
+  - Identify bottlenecks (e.g., slow dataset downloads).
+  - Parallelize independent tasks where safe.
+- Each task logs to Airflow’s logging system; see per-task logs in the UI.
+- When `anomaly_detection_dag` fails, you can connect:
+  - **Email alerts** via Airflow’s `[email]` configuration.
+  - **Slack alerts** using an `on_failure_callback` and a Slack webhook.
+
+
+---
 
 ## References
 
-- [Airflow Docker docs](https://airflow.apache.org/docs/apache-airflow/stable/howto/docker-compose/index.html)
-- [Airflow Lab tutorial](https://www.mlwithramin.com/blog/airflow-lab1)
+- Airflow Docker docs: `https://airflow.apache.org/docs/apache-airflow/stable/howto/docker-compose/index.html`
+- Example lab / tutorial: `https://www.mlwithramin.com/blog/airflow-lab1`
