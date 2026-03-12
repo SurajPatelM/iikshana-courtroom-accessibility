@@ -110,7 +110,10 @@ iikshana-courtroom-accessibility/
 │   ├── tests/               # Preprocessing / validation / split tests
 │   ├── config/              # Dataset configuration
 │   └── README.md
-├── airflow/                 # Airflow DAGs + Docker setup for pipeline
+├── model-pipeline/          # Model pipeline (runs after data pipeline; manual trigger)
+│   ├── scripts/             # Apply model + prompts to processed data
+│   └── README.md            # Task 1: Clarify your setup + how to run
+├── airflow/                 # Airflow DAGs + Docker setup (data + model pipelines)
 │   ├── dags/                # full_pipeline_dag and stage DAGs
 │   ├── docker-compose.yaml
 │   └── README.md
@@ -252,6 +255,15 @@ docker compose up      # Airflow web UI at http://localhost:8080
 - DAGs live in `airflow/dags/` and orchestrate the data pipeline defined in `data-pipeline/`.
 
 For details on DAGs, data layout, and troubleshooting, see `airflow/README.md` and `data-pipeline/README.md`.
+
+#### 5.3 Model pipeline (manual, after data pipeline)
+
+The **model pipeline** runs separately from the data pipeline. After the data pipeline has produced processed splits (e.g. under `data/processed/`), trigger the **model pipeline** manually to apply the Gemini model and prompts to that data:
+
+- **Via Airflow**: Run the **`model_pipeline_dag`** from the Airflow UI (manual trigger only; it is not part of `full_pipeline_dag`).
+- **Via CLI**: From repo root, `PYTHONPATH=. python model-pipeline/scripts/run_translation_eval.py --split dev --config-id translation_flash_v1` (uses existing splits dev/test/holdout; add `data/processed/<split>/translation_inputs.csv` to run translation).
+
+See `model-pipeline/README.md` for Task 1 setup and usage.
 
 ---
 

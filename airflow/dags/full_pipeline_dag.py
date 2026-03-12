@@ -66,14 +66,29 @@ if [ $DVC_RC -ne 0 ]; then
 fi
 """
 
+RUN_TRANSLATION_EVAL = """
+set -e
+echo "=== Model pipeline: translation evaluation ==="
+export PYTHONPATH=/workspace
+cd /workspace
+python model-pipeline/scripts/run_translation_eval.py \
+  --split "{{ params.get('split', 'dev') }}" \
+  --config-id "{{ params.get('config_id', 'translation_flash_v1') }}"
+echo "=== Model pipeline: done ==="
+"""
+
 with DAG(
         dag_id="full_pipeline_dag",
         default_args=default_args,
-        description="DVC pull (optional) → acquisition → preprocessing → validation → anomaly → bias → gemini → DVC push (optional)",
+        description="DVC pull (optional) → acquisition → preprocessing → validation → anomaly → bias → gemini → model → DVC push (optional)",
         schedule=None,
         start_date=datetime(2025, 1, 1),
         catchup=False,
         tags=["iikshana", "data", "pipeline", "full"],
+        params={
+            "split": "dev",
+            "config_id": "translation_flash_v1",
+        },
 ) as dag:
 
     dvc_pull = BashOperator(
@@ -159,6 +174,12 @@ echo "=== DVC push task: done ==="
         dag=dag,
     )
 
+    run_translation_eval = BashOperator(
+        task_id="mode_setup",
+        bash_command=RUN_TRANSLATION_EVAL,
+        dag=dag,
+    )
+
     (
             dvc_pull
             >> trigger_acquisition
@@ -168,4 +189,5 @@ echo "=== DVC push task: done ==="
             >> trigger_bias_detection
             >> trigger_gemini_verification
             >> dvc_push
+            >> run_translation_eval
     )
