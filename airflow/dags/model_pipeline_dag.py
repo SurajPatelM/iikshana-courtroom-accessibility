@@ -22,7 +22,7 @@ default_args = {
 }
 
 # Run translation eval from repo root so backend and config are on PYTHONPATH.
-RUN_TRANSLATION_EVAL = """
+RUN_MODEL_SETUP = """
 set -e
 echo "=== Model pipeline: translation evaluation ==="
 export PYTHONPATH=/workspace
@@ -47,10 +47,10 @@ with DAG(
     },
 ) as dag:
 
-    run_translation_eval = BashOperator(
+    run_model_setup = BashOperator(
         task_id="mode_setup",
-        bash_command=RUN_TRANSLATION_EVAL,
+        bash_command=RUN_MODEL_SETUP,
         dag=dag,
     )
 
-    run_translation_eval
+    run_model_setup

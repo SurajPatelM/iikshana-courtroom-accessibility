@@ -66,7 +66,7 @@ if [ $DVC_RC -ne 0 ]; then
 fi
 """
 
-RUN_TRANSLATION_EVAL = """
+RUN_MODEL_SETUP = """
 set -e
 echo "=== Model pipeline: translation evaluation ==="
 export PYTHONPATH=/workspace
@@ -174,9 +174,9 @@ echo "=== DVC push task: done ==="
         dag=dag,
     )
 
-    run_translation_eval = BashOperator(
+    run_model_setup = BashOperator(
         task_id="mode_setup",
-        bash_command=RUN_TRANSLATION_EVAL,
+        bash_command=RUN_MODEL_SETUP,
         dag=dag,
     )
 
@@ -189,5 +189,5 @@ echo "=== DVC push task: done ==="
             >> trigger_bias_detection
             >> trigger_gemini_verification
             >> dvc_push
-            >> run_translation_eval
+            >> run_model_setup
     )

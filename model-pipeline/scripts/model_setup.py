@@ -8,7 +8,7 @@ each entry: if the file is audio (WAV, etc.), transcribes it with Groq Whisper
 phrase from emotion and translates it. Optionally supports translation_inputs
 if you want to supply explicit text instead.
 
-Run from repo root with PYTHONPATH set, or via Airflow run_translation_eval task.
+Run from repo root with PYTHONPATH set, or via Airflow run_model_setup task.
 
 Example:
     PYTHONPATH=/workspace python model-pipeline/scripts/model_setup.py \\

@@ -49,7 +49,7 @@ It is **separate** from the data pipeline: different DAG, manually triggered, an
 2. **Model pipeline is triggered manually** when you want to apply the model and prompts. You only need to click **Trigger** on the `model_pipeline_dag` in the Airflow UI.
 3. **When you trigger the model pipeline DAG** (Airflow):
    - **Task 1 – `dvc_pull`**: If `DVC_GCS_BUCKET` is set in the Airflow environment (e.g. in `airflow/.env`), the DAG pulls the latest processed data from GCS into `/workspace/data/` so the next task has fresh data. If the bucket is not set, this task skips (and the eval task uses whatever data is already under `data/processed/`).
-   - **Task 2 – `run_translation_eval`**: Runs the Gemini translation on the chosen split and writes predictions.
+   - **Task 2 – `run_model_setup`**: Runs the Gemini translation on the chosen split and writes predictions.
 4. **Trigger options**:
    - **Airflow (recommended)**: Run **`model_pipeline_dag`** from the Airflow UI (manual trigger). The DAG first pulls from GCS (when configured), then runs the model. No need to run the full data pipeline first on that machine.
    - **CLI**: From repo root with the right `PYTHONPATH`, run the script (see below). You must have processed data already present (e.g. from a previous DVC pull or local run).
