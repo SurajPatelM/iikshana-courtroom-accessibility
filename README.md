@@ -1,4 +1,5 @@
 ## Iikshana: On-Prem Courtroom Language Access System
+
 ### ADA-Aligned Audio Accessibility (Assistive, Not Authoritative)
 
 Iikshana is an **on-prem, AI-assisted courtroom accessibility system** that provides real-time spoken-language support for participants who are blind but can hear.
@@ -11,12 +12,12 @@ The system offers **live speech recognition, translation, and audio playback**, 
 
 ### Team — Group 16 (IE7374 MLOps)
 
-- Aditya Vasisht  
-- Akshata Kumble  
-- Amit Karanth Gurpur  
-- Rohit Abhijit Kulkarni  
-- Shridhar Sunilkumar Pol  
-- Suraj Patel Muthe Gowda  
+- Aditya Vasisht
+- Akshata Kumble
+- Amit Karanth Gurpur
+- Rohit Abhijit Kulkarni
+- Shridhar Sunilkumar Pol
+- Suraj Patel Muthe Gowda
 
 ---
 
@@ -136,10 +137,10 @@ iikshana-courtroom-accessibility/
 
 ### Prerequisites
 
-- **Python**: 3.10+  
-- **Node.js**: 18+ (for the React frontend)  
-- **npm**: comes with Node  
-- **Docker + Docker Compose** (for Airflow-based pipeline orchestration; optional but recommended)  
+- **Python**: 3.10+
+- **Node.js**: 18+ (for the React frontend)
+- **npm**: comes with Node
+- **Docker + Docker Compose** (for Airflow-based pipeline orchestration; optional but recommended)
 
 > For production or realistic evaluation, ensure a machine with sufficient CPU/RAM, low-latency audio IO, and restricted network egress.
 
@@ -261,7 +262,7 @@ For details on DAGs, data layout, and troubleshooting, see `airflow/README.md` a
 The **model pipeline** runs separately from the data pipeline. After the data pipeline has produced processed splits (e.g. under `data/processed/`), trigger the **model pipeline** manually to apply the Gemini model and prompts to that data:
 
 - **Via Airflow**: Run the **`model_pipeline_dag`** from the Airflow UI (manual trigger only; it is not part of `full_pipeline_dag`).
-- **Via CLI**: From repo root, `PYTHONPATH=. python model-pipeline/scripts/run_translation_eval.py --split dev --config-id translation_flash_v1` (uses existing splits dev/test/holdout; add `data/processed/<split>/translation_inputs.csv` to run translation).
+- **Via CLI**: From repo root, `PYTHONPATH=. python model-pipeline/scripts/model_setup.py --split dev --config-id translation_flash_v1` (uses existing splits dev/test/holdout; add `data/processed/<split>/translation_inputs.csv` to run translation).
 
 See `model-pipeline/README.md` for Task 1 setup and usage.
 
@@ -271,13 +272,13 @@ See `model-pipeline/README.md` for Task 1 setup and usage.
 
 ### Core Metrics (example targets)
 
-| Metric                    | Target        |
-|---------------------------|--------------|
-| End-to-end latency        | ≤ 2 seconds  |
-| Translation latency       | ≤ 1 second   |
-| WER (benchmark audio)     | < 10%        |
-| Glossary enforcement      | ≥ 95%        |
-| Interpreter override rate | < 20%        |
+| Metric                    | Target      |
+| ------------------------- | ----------- |
+| End-to-end latency        | ≤ 2 seconds |
+| Translation latency       | ≤ 1 second  |
+| WER (benchmark audio)     | < 10%       |
+| Glossary enforcement      | ≥ 95%       |
+| Interpreter override rate | < 20%       |
 
 ### Bias Detection
 
@@ -295,14 +296,13 @@ See `data-pipeline/README.md` for how to run:
 
 ---
 
-
 ## Standards Alignment
 
 The project is designed with reference to:
 
 - ADA Title II (Effective Communication).
 - US DOJ Language Access Guidance.
-+- NCSC Court Technology Guidance.
+  +- NCSC Court Technology Guidance.
 - NIST AI Risk Management Framework.
 
 ---
@@ -322,4 +322,4 @@ It is:
 
 ## License / Intended Use
 
-This repository is intended for **academic and research use only**.  
+This repository is intended for **academic and research use only**.

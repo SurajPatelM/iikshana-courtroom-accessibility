@@ -58,7 +58,7 @@ When the model pipeline runs, it:
 
 - (In Airflow) Pulls the latest processed data from GCS when `DVC_GCS_BUCKET` is set.
 - Uses the **same split names** as the data pipeline: **dev**, **test**, **holdout**.
-- **Primary path (pulled data):** Reads `data/processed/<split>/manifest.json` (always present after DVC pull). For each manifest entry (file, dataset, speaker_id, emotion), calls the Gemini API to generate a short courtroom phrase and its translation. By default processes the first 10 entries (`--max-rows 10`). Writes `data/processed/<split>/translation_predictions_<config_id>.parquet`.
+- **Primary path (pulled data):** Reads `data/processed/<split>/manifest.json` (always present after DVC pull). For each manifest entry (file, dataset, speaker*id, emotion), calls the Gemini API to generate a short courtroom phrase and its translation. By default processes the first 10 entries (`--max-rows 10`). Writes `data/processed/<split>/translation_predictions*<config_id>.parquet`.
 - **Optional override:** If `data/processed/<split>/translation_inputs.csv` (or `.parquet`) exists with columns `source_text`, `source_language`, `target_language`, that file is used instead and each row is sent to the translation API.
 - If neither manifest nor translation_inputs exists, the script skips and exits 0 with a message.
 
@@ -70,7 +70,7 @@ When the model pipeline runs, it:
 model-pipeline/
 ├── README.md                 # This file (Task 1: Clarify your setup + how to run)
 ├── scripts/
-│   └── run_translation_eval.py   # Entry point: load data, run Gemini translation, write predictions
+│   └── model_setup.py   # Entry point: load data, run Gemini translation, write predictions
 └── (optional later: config overrides, outputs/, logs/)
 ```
 
@@ -97,7 +97,7 @@ From the **repository root**:
 # Ensure dependencies and Google auth are set (e.g. gcloud auth application-default login)
 export PYTHONPATH="${PWD}"
 
-python model-pipeline/scripts/run_translation_eval.py \
+python model-pipeline/scripts/model_setup.py \
   --split dev \
   --config-id translation_flash_v1
 ```
@@ -118,16 +118,16 @@ If you add `data/processed/<split>/translation_inputs.csv` with columns `source_
 
 ## 5. Summary (Task 1 checklist)
 
-| Item | Status |
-|------|--------|
-| Model: Pre-trained via API (Gemini) | Yes |
-| Task: Courtroom accessibility (translation) | Yes |
-| Data pipeline: Outputs clean, versioned train/val/test to storage | Yes (consumed from `data/processed/`) |
-| No weight training | Yes |
-| Design prompts and model configs | Yes (`config/models/`, `prompts/`) |
-| Evaluate performance and fairness | Script in place; full metrics/bias in later tasks |
-| Track experiments | To be extended (e.g. MLflow/W&B) in later tasks |
-| Package/version model config in registry | To be implemented in later tasks |
-| Model pipeline separate from data pipeline; manual trigger | Yes (separate DAG, manual trigger only) |
+| Item                                                              | Status                                            |
+| ----------------------------------------------------------------- | ------------------------------------------------- |
+| Model: Pre-trained via API (Gemini)                               | Yes                                               |
+| Task: Courtroom accessibility (translation)                       | Yes                                               |
+| Data pipeline: Outputs clean, versioned train/val/test to storage | Yes (consumed from `data/processed/`)             |
+| No weight training                                                | Yes                                               |
+| Design prompts and model configs                                  | Yes (`config/models/`, `prompts/`)                |
+| Evaluate performance and fairness                                 | Script in place; full metrics/bias in later tasks |
+| Track experiments                                                 | To be extended (e.g. MLflow/W&B) in later tasks   |
+| Package/version model config in registry                          | To be implemented in later tasks                  |
+| Model pipeline separate from data pipeline; manual trigger        | Yes (separate DAG, manual trigger only)           |
 
 This completes **Task 1: Clarify your setup** for the model development guidelines.

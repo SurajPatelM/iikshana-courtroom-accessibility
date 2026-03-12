@@ -27,7 +27,7 @@ set -e
 echo "=== Model pipeline: translation evaluation ==="
 export PYTHONPATH=/workspace
 cd /workspace
-python model-pipeline/scripts/run_translation_eval.py \
+python model-pipeline/scripts/model_setup.py \
   --split "{{ params.get('split', 'dev') }}" \
   --config-id "{{ params.get('config_id', 'translation_flash_v1') }}"
 echo "=== Model pipeline: done ==="
