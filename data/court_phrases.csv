@@ -1,0 +1,43 @@
+source_text,source_language,target_language,reference_translation
+"Your Honor, I object.",en,es,Su Señoría, me opongo.
+"The witness may step down.",en,es,El testigo puede retirarse.
+"Please state your name for the record.",en,es,Por favor diga su nombre para el registro.
+"The court is now in session.",en,es,La audiencia queda abierta.
+"I swear to tell the truth, the whole truth, and nothing but the truth.",en,es,Juro decir la verdad, toda la verdad y nada más que la verdad.
+"Your Honor, we request a brief recess.",en,es,Su Señoría, solicitamos un breve receso.
+"The objection is overruled.",en,es,El objeto es denegado.
+"The objection is sustained.",en,es,El objeto es estimado.
+"You may cross-examine the witness.",en,es,Puede interrogar al testigo.
+"Let the record reflect that the witness has identified the defendant.",en,es,Que conste en actas que el testigo ha identificado al acusado.
+"Your Honor.",en,es,Su Señoría.
+"Please state your name for the record.",en,es,Por favor diga su nombre para el registro.
+"Do you swear to tell the truth, the whole truth, and nothing but the truth?",en,es,¿Jura decir la verdad, toda la verdad y nada más que la verdad?
+"The court is in session.",en,es,La audiencia queda abierta.
+"I plead not guilty.",en,es,Me declaro inocente.
+"Objection.",en,es,Objeción.
+"We rest our case.",en,es,Damos por concluida nuestra presentación.
+"The jury will now deliberate.",en,es,El jurado deliberará ahora.
+"Order in the court.",en,es,Orden en la sala.
+"The bailiff will escort the witness.",en,es,El alguacil acompañará al testigo.
+"I request a brief recess.",en,es,Solicito un breve receso.
+"Let the record reflect.",en,es,Que conste en actas.
+"Approach the bench.",en,es,Acérquense al estrado.
+"You are under oath.",en,es,Está bajo juramento.
+"The motion is denied.",en,es,El recurso es denegado.
+"The motion is granted.",en,es,El recurso es estimado.
+"Please speak up.",en,es,Por favor hable más alto.
+"I did not understand.",en,es,No entendí.
+"That is irrelevant.",en,es,Eso es irrelevante.
+"Leading question.",en,es,Pregunta sugestiva.
+"Hearsay.",en,es,Rumor. / Testimonio de oídas.
+"I withdraw the question.",en,es,Retiro la pregunta.
+"No further questions.",en,es,No hay más preguntas.
+"We find the defendant guilty.",en,es,Declaramos al acusado culpable.
+"We find the defendant not guilty.",en,es,Declaramos al acusado no culpable.
+"The court sentences the defendant to five years.",en,es,La corte sentencia al acusado a cinco años.
+"Court is adjourned.",en,es,Se levanta la sesión.
+"All rise.",en,es,Todos de pie.
+"The clerk will read the verdict.",en,es,El secretario leerá el veredicto.
+"I plead guilty.",en,es,Me declaro culpable.
+"The defense rests.",en,es,La defensa da por concluida su presentación.
+"The court finds the defendant not guilty.",en,es,La corte declara al acusado no culpable.

@@ -38,22 +38,24 @@ class HuggingFaceClient:
         self,
         prompt: str,
         *,
+        system_prompt: str | None = None,
         temperature: float = 0.0,
         top_p: float = 1.0,
         max_output_tokens: int = 256,
     ) -> str:
         """
         Generate text from a prompt using a Hugging Face Inference API model.
-
-        Parameters are accepted to mirror other clients; only max_output_tokens
-        may be forwarded depending on the model.
+        If system_prompt is set, it is prepended to the user prompt (single-input API).
         """
         headers = {
             "Authorization": f"Bearer {self._api_token}",
             "Content-Type": "application/json",
         }
+        inputs = prompt
+        if system_prompt:
+            inputs = f"{system_prompt.strip()}\n\n{prompt}"
         payload = {
-            "inputs": prompt,
+            "inputs": inputs,
             "parameters": {
                 "max_new_tokens": max_output_tokens,
                 "temperature": temperature,

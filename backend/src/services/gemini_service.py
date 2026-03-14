@@ -54,6 +54,7 @@ class GeminiClient:
         self,
         prompt: str,
         *,
+        system_prompt: str | None = None,
         temperature: float = 0.0,
         top_p: float = 1.0,
         max_output_tokens: int = 256,
@@ -61,24 +62,7 @@ class GeminiClient:
     ) -> str:
         """
         Generate text from a prompt using the configured Gemini model.
-
-        Parameters
-        ----------
-        prompt:
-            The text prompt to send to the model.
-        temperature:
-            Sampling temperature; 0.0 for deterministic behaviour.
-        top_p:
-            Nucleus sampling parameter.
-        max_output_tokens:
-            Maximum number of tokens in the generated response.
-        extra_generation_config:
-            Optional additional generation parameters passed through to the API.
-
-        Returns
-        -------
-        str
-            The model's textual response content.
+        If system_prompt is set, it is passed as system_instruction when supported.
         """
 
         generation_config: Dict[str, Any] = {
@@ -90,10 +74,14 @@ class GeminiClient:
         if extra_generation_config:
             generation_config.update(extra_generation_config)
 
+        config: Dict[str, Any] = dict(generation_config)
+        if system_prompt:
+            config["system_instruction"] = system_prompt
+
         response = self._client.models.generate_content(
             model=self._model_name,
             contents=prompt,
-            config=generation_config,
+            config=config,
         )
 
         # The google-genai client returns a response with candidates; we take

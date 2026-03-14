@@ -1,16 +1,15 @@
-id: translation_flash_v1
+# Groq + same model as flash_v1, but glossary-focused prompt (compare prompts).
+id: translation_flash_glossary
 provider: groq
 model_name: llama-3.1-8b-instant
 task_type: translation
 
-# System + user prompts (set both for clear role vs request separation)
-system_prompt_id: translation_baseline_system
-prompt_template_id: translation_baseline_user
+system_prompt_id: translation_glossary_system
+prompt_template_id: translation_glossary_user
 temperature: 0.0
 top_p: 1.0
 max_output_tokens: 256
 
-# Input / output schema for the translation task
 input_fields:
   - source_text
   - source_language

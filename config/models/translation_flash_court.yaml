@@ -1,16 +1,15 @@
-id: translation_flash_v1
+# Court-phrase–oriented: prompt nudges model toward common legal Spanish phrasing (better BLEU on court_translation_inputs).
+id: translation_flash_court
 provider: groq
 model_name: llama-3.1-8b-instant
 task_type: translation
 
-# System + user prompts (set both for clear role vs request separation)
-system_prompt_id: translation_baseline_system
+system_prompt_id: translation_court_system
 prompt_template_id: translation_baseline_user
 temperature: 0.0
 top_p: 1.0
 max_output_tokens: 256
 
-# Input / output schema for the translation task
 input_fields:
   - source_text
   - source_language
@@ -25,4 +24,3 @@ parsing:
 
 postprocessing:
   normalize_whitespace: true
-  apply_legal_glossary_check: true

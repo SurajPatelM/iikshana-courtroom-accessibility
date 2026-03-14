@@ -1,16 +1,15 @@
-id: translation_flash_v1
+# Groq + same model, minimal "formal short" prompt (prompt C for config search).
+id: translation_flash_short_prompt
 provider: groq
 model_name: llama-3.1-8b-instant
 task_type: translation
 
-# System + user prompts (set both for clear role vs request separation)
-system_prompt_id: translation_baseline_system
-prompt_template_id: translation_baseline_user
+system_prompt_id: translation_formal_short_system
+prompt_template_id: translation_formal_short_user
 temperature: 0.0
 top_p: 1.0
 max_output_tokens: 256
 
-# Input / output schema for the translation task
 input_fields:
   - source_text
   - source_language

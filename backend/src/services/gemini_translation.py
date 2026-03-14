@@ -19,11 +19,19 @@ from .groq_service import GroqClient
 from .hf_service import HuggingFaceClient
 
 
-# In both the backend and Airflow containers the repository root is mounted at
-# /workspace. Using this as the anchor makes config/prompts resolution robust
-# regardless of where this module is imported from (backend app vs. model
-# pipeline scripts).
-REPO_ROOT = Path("/workspace") if Path("/workspace").exists() else Path(__file__).resolve().parents[2]
+# In Docker containers the repository root is mounted at /workspace. When that
+# path does not exist (e.g. local Python run on the host), fall back to the
+# project root by walking up from backend/src/services to the repo root.
+_this_file = Path(__file__).resolve()
+if Path("/workspace").exists():
+    REPO_ROOT = Path("/workspace")
+else:
+    # backend/src/services/gemini_translation.py -> repo root is parents[3]
+    # .../backend/src/services -> parents[0]
+    # .../backend/src         -> parents[1]
+    # .../backend             -> parents[2]
+    # .../                    -> parents[3]
+    REPO_ROOT = _this_file.parents[3]
 CONFIG_DIR = REPO_ROOT / "config" / "models"
 PROMPTS_DIR = REPO_ROOT / "prompts"
 
@@ -39,6 +47,7 @@ class TranslationModelConfig:
     temperature: float
     top_p: float
     max_output_tokens: int
+    system_prompt_id: str | None = None  # optional; if set, used as system message
 
 
 def _load_model_config(config_id: str) -> TranslationModelConfig:
@@ -55,6 +64,7 @@ def _load_model_config(config_id: str) -> TranslationModelConfig:
         temperature=float(raw.get("temperature", 0.0)),
         top_p=float(raw.get("top_p", 1.0)),
         max_output_tokens=int(raw.get("max_output_tokens", 256)),
+        system_prompt_id=str(raw["system_prompt_id"]) if raw.get("system_prompt_id") else None,
     )
 
 
@@ -91,37 +101,27 @@ def translate_text(
     config_id: str = "translation_flash_v1",
 ) -> str:
     """
-    Translate text from ``source_language`` to ``target_language`` using Gemini.
+    Translate text from ``source_language`` to ``target_language`` using the configured model.
 
-    Parameters
-    ----------
-    source_text:
-        The input text to translate.
-    source_language:
-        Source language code or name (for prompt context).
-    target_language:
-        Target language code or name (for prompt context).
-    config_id:
-        Identifier of the translation model configuration to use.
-
-    Returns
-    -------
-    str
-        Translated text produced by the model.
+    Supports system + user prompts when config has system_prompt_id; otherwise
+    uses a single user prompt (prompt_template_id).
     """
 
     config = _load_model_config(config_id)
-    template = _load_prompt_template(config.prompt_template_id)
-
-    prompt = template.format(
+    user_template = _load_prompt_template(config.prompt_template_id)
+    user_prompt = user_template.format(
         source_text=source_text,
         source_language=source_language,
         target_language=target_language,
     )
+    system_prompt: str | None = None
+    if config.system_prompt_id:
+        system_prompt = _load_prompt_template(config.system_prompt_id)
 
     client = _get_text_client(config)
     return client.generate_text(
-        prompt,
+        user_prompt,
+        system_prompt=system_prompt,
         temperature=config.temperature,
         top_p=config.top_p,
         max_output_tokens=config.max_output_tokens,

@@ -21,6 +21,7 @@ import argparse
 import json
 import re
 import sys
+import time
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -249,7 +250,9 @@ def _run_translation_inputs(path: Path, config_id: str) -> pd.DataFrame:
         if col not in df.columns:
             raise ValueError(f"translation_inputs must have column: {col}")
     translations: List[str] = []
-    for _, row in df.iterrows():
+    for i, (_, row) in enumerate(df.iterrows()):
+        if i > 0:
+            time.sleep(2.0)  # Rate limit: avoid 429 from Groq/API when many rows
         t = translate_text(
             source_text=str(row["source_text"]),
             source_language=str(row["source_language"]),

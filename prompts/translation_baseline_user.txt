@@ -1,0 +1,6 @@
+Translate the following from {source_language} to {target_language}.
+
+Input text:
+{source_text}
+
+Output:
