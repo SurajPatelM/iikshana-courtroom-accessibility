@@ -10,12 +10,8 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
+import google.genai as genai
 import os
-
-try:
-    from google import genai  # type: ignore[import]
-except ImportError:
-    genai = None  # type: ignore[assignment]
 
 
 class GeminiClient:
@@ -43,10 +39,6 @@ class GeminiClient:
 
         self._model_name = model_name
         effective_key = api_key or os.environ.get("GEMINI_API_KEY")
-        if genai is None:
-            raise RuntimeError(
-                "google-genai is not installed. Install it with 'pip install google-genai'."
-            )
         self._client = genai.Client(
             api_key=effective_key,
             http_options={"api_version": "v1"},
