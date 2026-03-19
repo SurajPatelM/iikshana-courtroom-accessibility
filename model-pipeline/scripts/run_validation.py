@@ -15,6 +15,8 @@ PowerShell:
 
 from __future__ import annotations
 
+import os
+import mlflow
 import argparse
 import json
 import sys
@@ -187,6 +189,46 @@ def _glossary_enforcement(references: List[str], hypotheses: List[str], terms: L
         return None
     return round(preserved / total, 4)
 
+def _log_to_mlflow(
+    *,
+    config_id: str,
+    split: str,
+    inputs_basename: str,
+    data_dir: str,
+    n_samples: int,
+    metrics: dict,
+    artifacts: dict,
+) -> None:
+    """
+    Log params, metrics, and artifacts for a single config into MLflow.
+    Called once per config when --configs is used.
+    """
+    # Optional: respect MLFLOW_TRACKING_URI env var, else default to ./mlruns
+    tracking_uri = os.environ.get("MLFLOW_TRACKING_URI", "file:./mlruns")
+    mlflow.set_tracking_uri(tracking_uri)
+    mlflow.set_experiment("iikshana-translation")
+
+    with mlflow.start_run(run_name=f"{config_id}_{split}_{inputs_basename}"):
+        # Params
+        mlflow.log_params(
+            {
+                "config_id": config_id,
+                "split": split,
+                "inputs_basename": inputs_basename,
+                "data_dir": data_dir or "data/processed",
+                "n_samples": n_samples,
+            }
+        )
+        # Metrics
+        mlflow.log_metrics(metrics)
+
+        # Artifacts (if files exist)
+        for name, path in artifacts.items():
+            if path is None:
+                continue
+            p = Path(path)
+            if p.is_file():
+                mlflow.log_artifact(str(p), artifact_path=name)
 
 def _run_config(config_id: str, features: pd.DataFrame, delay: float) -> List[str]:
     predictions: List[str] = []
@@ -374,6 +416,32 @@ def main() -> None:
         metrics_per_config.append(row)
         last_predictions = preds
         print(f"    BLEU={bleu:.4f}  chrF={chrf:.4f}  exact_match={exact_match:.2%}")
+
+        # When comparing multiple configs (--configs), log each config as a separate MLflow run.
+        if args.configs.strip():
+            artifacts = {
+                "validation_metrics_json": split_dir / VALIDATION_METRICS_JSON,
+                "validation_metrics_csv": split_dir / VALIDATION_METRICS_CSV,
+                "bar_plot": split_dir / VALIDATION_BAR_PLOT,
+                "segment_hist": split_dir / VALIDATION_SEGMENT_HIST,
+                "confusion_plot": split_dir / VALIDATION_CM_PLOT,
+            }
+            metrics_payload: Dict[str, float] = {
+                "bleu": float(row["bleu"]),
+                "chrf": float(row["chrf"]),
+                "exact_match_accuracy": float(row["exact_match_accuracy"]),
+            }
+            if "glossary_enforcement" in row:
+                metrics_payload["glossary_enforcement"] = float(row["glossary_enforcement"])
+            _log_to_mlflow(
+                config_id=config_id,
+                split=args.split,
+                inputs_basename=args.inputs_basename,
+                data_dir=args.data_dir,
+                n_samples=n,
+                metrics=metrics_payload,
+                artifacts=artifacts,
+            )
 
     payload: Dict[str, Any] = {
         "task": args.task,
