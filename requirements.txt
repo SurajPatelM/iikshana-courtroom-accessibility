@@ -29,6 +29,9 @@ pytest-cov>=4.1.0
 
 # Gemini API (optional: for verify_gemini_audio / gemini_verification_dag)
 google-genai>=1.0.0
+
+# Experiment tracking (Task 4)
+mlflow>=2.0.0
 # Hugging Face (for MELD/TESS)
 datasets>=2.14.0
 
