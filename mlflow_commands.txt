@@ -1,0 +1,9 @@
+$env:PYTHONPATH = "."
+$env:MLFLOW_TRACKING_URI = "file:./mlruns"  # optional
+python model-pipeline/scripts/run_validation.py `
+  --split dev `
+  --configs translation_flash_v1,translation_flash_glossary `
+  --inputs-basename translation_inputs
+
+#start the ui server
+mlflow ui --backend-store-uri "file:./mlruns"
