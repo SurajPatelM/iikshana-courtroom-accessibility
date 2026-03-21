@@ -25,10 +25,18 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
+SCRIPTS_DIR = Path(__file__).resolve().parent
+for _p in (REPO_ROOT, SCRIPTS_DIR):
+    if str(_p) not in sys.path:
+        sys.path.insert(0, str(_p))
 
 import pandas as pd
+
+from model_pipeline_paths import (
+    find_translation_inputs,
+    resolve_pipeline_and_model_roots,
+    split_dirs,
+)
 
 from backend.src.services.gemini_translation import translate_text
 
@@ -46,7 +54,9 @@ def _parse_args() -> argparse.Namespace:
         description="Task 2.3: Run model validation on a split; compute metrics; save JSON, CSV, and plots."
     )
     p.add_argument("--split", type=str, default="dev", choices=VALID_SPLITS)
-    p.add_argument("--data-dir", type=str, default="", help="Override data/processed")
+    p.add_argument("--data-dir", type=str, default="", help="Legacy: single root for pipeline+model outputs.")
+    p.add_argument("--pipeline-data-dir", type=str, default="", help="Pipeline root (default: data/processed).")
+    p.add_argument("--model-output-root", type=str, default="", help="Model artifacts root (default: data/model_runs).")
     p.add_argument(
         "--task",
         type=str,
@@ -82,24 +92,8 @@ def _parse_args() -> argparse.Namespace:
     return p.parse_args()
 
 
-def _resolve_processed_dir(repo_root: Path, override: str) -> Path:
-    if override:
-        path = Path(override)
-        return path if path.is_absolute() else repo_root / path
-    return repo_root / "data" / "processed"
-
-
-def _find_inputs(split_dir: Path, basename: str) -> Path:
-    for ext in (".parquet", ".csv"):
-        p = split_dir / f"{basename}{ext}"
-        if p.exists():
-            return p
-    raise FileNotFoundError(f"No {basename}.parquet or .csv in {split_dir}")
-
-
-def _load_translation_val(split_dir: Path, max_rows: int, basename: str) -> tuple[pd.DataFrame, pd.Series]:
-    path = _find_inputs(split_dir, basename)
-    df = pd.read_parquet(path) if path.suffix.lower() == ".parquet" else pd.read_csv(path)
+def _load_translation_val(inputs_path: Path, max_rows: int) -> tuple[pd.DataFrame, pd.Series]:
+    df = pd.read_parquet(inputs_path) if inputs_path.suffix.lower() == ".parquet" else pd.read_csv(inputs_path)
     for col in ["source_text", "source_language", "target_language", "reference_translation"]:
         if col not in df.columns:
             raise ValueError(f"Eval table must have column {col}")
@@ -364,11 +358,13 @@ def _save_translation_cm_plot(references: List[str], predictions: List[str], out
 
 def main() -> None:
     args = _parse_args()
-    processed_root = _resolve_processed_dir(REPO_ROOT, args.data_dir)
-    split_dir = processed_root / args.split
-    if not split_dir.is_dir():
-        print(f"[ERROR] Split directory not found: {split_dir}")
-        sys.exit(1)
+    pipeline_root, model_root = resolve_pipeline_and_model_roots(
+        REPO_ROOT,
+        data_dir_legacy=args.data_dir,
+        pipeline_data_dir=args.pipeline_data_dir,
+        model_output_root=args.model_output_root,
+    )
+    pipeline_split, model_split = split_dirs(pipeline_root, model_root, args.split)
 
     if args.configs.strip():
         config_ids = [c.strip() for c in args.configs.split(",") if c.strip()]
@@ -379,11 +375,22 @@ def main() -> None:
         print("[ERROR] Only task=translation is implemented. Use --task translation.")
         sys.exit(1)
 
-    print(f"Loading validation set from {split_dir} (basename={args.inputs_basename})...")
-    features, labels = _load_translation_val(split_dir, args.max_rows, args.inputs_basename)
+    inputs_path = find_translation_inputs(model_split, pipeline_split, args.inputs_basename)
+    if inputs_path is None:
+        print(
+            f"[ERROR] No {args.inputs_basename}.csv/.parquet under {model_split} or {pipeline_split}. "
+            "Run build_translation_inputs_from_audio.py first."
+        )
+        sys.exit(1)
+
+    print(f"Loading validation set from {inputs_path}...")
+    features, labels = _load_translation_val(inputs_path, args.max_rows)
     references = labels.astype(str).tolist()
     n = len(references)
     print(f"Validating {len(config_ids)} config(s) on {n} example(s).")
+
+    out_dir = model_split
+    out_dir.mkdir(parents=True, exist_ok=True)
 
     glossary_terms = _load_glossary_terms(REPO_ROOT)
     metrics_per_config: List[Dict[str, Any]] = []
@@ -420,11 +427,11 @@ def main() -> None:
         # When comparing multiple configs (--configs), log each config as a separate MLflow run.
         if args.configs.strip():
             artifacts = {
-                "validation_metrics_json": split_dir / VALIDATION_METRICS_JSON,
-                "validation_metrics_csv": split_dir / VALIDATION_METRICS_CSV,
-                "bar_plot": split_dir / VALIDATION_BAR_PLOT,
-                "segment_hist": split_dir / VALIDATION_SEGMENT_HIST,
-                "confusion_plot": split_dir / VALIDATION_CM_PLOT,
+                "validation_metrics_json": out_dir / VALIDATION_METRICS_JSON,
+                "validation_metrics_csv": out_dir / VALIDATION_METRICS_CSV,
+                "bar_plot": out_dir / VALIDATION_BAR_PLOT,
+                "segment_hist": out_dir / VALIDATION_SEGMENT_HIST,
+                "confusion_plot": out_dir / VALIDATION_CM_PLOT,
             }
             metrics_payload: Dict[str, float] = {
                 "bleu": float(row["bleu"]),
@@ -451,9 +458,6 @@ def main() -> None:
     }
     if len(metrics_per_config) == 1:
         payload["metrics"] = metrics_per_config[0]
-
-    out_dir = split_dir
-    out_dir.mkdir(parents=True, exist_ok=True)
 
     json_path = out_dir / VALIDATION_METRICS_JSON
     with json_path.open("w", encoding="utf-8") as f:

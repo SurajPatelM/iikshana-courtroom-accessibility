@@ -2,16 +2,18 @@
 Task 2.1 — Evaluation module: load pipeline output and split into features vs labels.
 
 Implements:
-- Load processed data from your existing pipeline output
-  (e.g. data/processed/<split>/translation_inputs.csv, data/processed/val.parquet).
+- Load translation eval tables written by model-pipeline scripts (default under
+  ``data/model_runs/<split>/``), with fallback to ``data/processed/<split>/`` for older layouts.
 - Split into:
   - features → prompt input (whatever text/structured info you feed into the LLM),
   - labels   → expected output (golden answer / class / numeric score you compare against).
 
 Supported sources:
-- Per-split table: data/processed/<split>/translation_inputs.csv or .parquet (split=dev|test|holdout).
-- Single file:      data/processed/val.parquet (use load_eval_dataset_from_file).
-- In-memory:        DataFrame from BigQuery or elsewhere (use split_features_labels).
+- Per-split table: ``translation_inputs.csv`` or ``.parquet`` under
+  ``data/model_runs/<split>/`` first, then ``data/processed/<split>/`` (split=dev|test|holdout).
+  Legacy: pass ``data_dir=`` to use one root for both. Env: ``PIPELINE_DATA_DIR``, ``MODEL_OUTPUT_ROOT``.
+- Single file: any path (e.g. ``data/processed/val.parquet``) via ``load_eval_dataset_from_file``.
+- In-memory: DataFrame from BigQuery or elsewhere (use ``split_features_labels``).
 
 Required columns in the table:
 - source_text, source_language, target_language  → used as features / prompt input.
@@ -25,10 +27,17 @@ Optional task-specific tables (same load pattern, different schema):
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
 from typing import Tuple
 
 import pandas as pd
+
+_SCRIPTS_DIR = Path(__file__).resolve().parent
+if str(_SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPTS_DIR))
+
+from model_pipeline_paths import find_translation_inputs, resolve_pipeline_and_model_roots, split_dirs
 
 
 VALID_SPLITS = ("dev", "test", "holdout")
@@ -106,22 +115,11 @@ def load_eval_dataset_from_file(path: str | Path) -> Tuple[pd.DataFrame, pd.Seri
     return _validate_and_split(df, source_hint=str(path))
 
 
-def _find_translation_inputs(split_dir: Path) -> Path:
-    """Return path to translation_inputs.parquet or .csv for a split."""
-    for ext in (".parquet", ".csv"):
-        p = split_dir / f"{TRANSLATION_INPUTS_BASENAME}{ext}"
-        if p.exists():
-            return p
-    raise FileNotFoundError(
-        f"No {TRANSLATION_INPUTS_BASENAME}.parquet or .csv in {split_dir}. "
-        f"Required columns: {', '.join(REQUIRED_COLUMNS)}."
-    )
-
-
 def load_eval_dataset(
     split: str,
     *,
     data_dir: str | Path | None = None,
+    model_output_root: str | Path | None = None,
     repo_root: str | Path | None = None,
 ) -> Tuple[pd.DataFrame, pd.Series]:
     """
@@ -135,7 +133,9 @@ def load_eval_dataset(
     split : str
         One of dev, test, holdout.
     data_dir : str or Path, optional
-        Override for data/processed (default: <repo_root>/data/processed).
+        Legacy: single root for both pipeline and model tables (old layout).
+    model_output_root : str or Path, optional
+        Override model artifacts root (default: data/model_runs). Ignored if ``data_dir`` is set.
     repo_root : str or Path, optional
         Repository root (default: inferred from this file).
 
@@ -150,16 +150,27 @@ def load_eval_dataset(
         raise ValueError(f"split must be one of {VALID_SPLITS}, got {split!r}")
 
     repo_root = Path(repo_root) if repo_root is not None else Path(__file__).resolve().parents[2]
-    processed_root = _resolve_processed_dir(repo_root, str(data_dir) if data_dir else None)
-    split_dir = processed_root / split
+    dd = str(data_dir).strip() if data_dir else ""
+    mor = str(model_output_root).strip() if model_output_root else ""
+    pipeline_root, model_root = resolve_pipeline_and_model_roots(
+        repo_root,
+        data_dir_legacy=dd,
+        pipeline_data_dir="",
+        model_output_root=mor,
+    )
+    pipeline_split, model_split = split_dirs(pipeline_root, model_root, split)
 
-    if not split_dir.is_dir():
+    if not pipeline_split.is_dir() and not model_split.is_dir():
         raise FileNotFoundError(
-            f"Processed split directory not found: {split_dir}. "
-            "Run the data pipeline (or DVC pull) so that data/processed/<split>/ exists."
+            f"No split directories at {pipeline_split} or {model_split}. "
+            "Run the data pipeline and/or build_translation_inputs_from_audio.py."
         )
 
-    inputs_path = _find_translation_inputs(split_dir)
+    inputs_path = find_translation_inputs(model_split, pipeline_split, TRANSLATION_INPUTS_BASENAME)
+    if inputs_path is None:
+        raise FileNotFoundError(
+            f"No {TRANSLATION_INPUTS_BASENAME}.csv/.parquet under {model_split} or {pipeline_split}."
+        )
     if inputs_path.suffix.lower() == ".parquet":
         df = pd.read_parquet(inputs_path)
     else:
@@ -236,7 +247,13 @@ def _parse_args() -> argparse.Namespace:
         "--data-dir",
         type=str,
         default="",
-        help="Override processed data directory (default: data/processed).",
+        help="Legacy: single root for pipeline+model tables.",
+    )
+    parser.add_argument(
+        "--model-output-root",
+        type=str,
+        default="",
+        help="Model artifacts root when not using --data-dir (default: data/model_runs).",
     )
     parser.add_argument(
         "--file",
@@ -260,6 +277,7 @@ def main() -> None:
         features_df, labels = load_eval_dataset(
             split=args.split,
             data_dir=args.data_dir or None,
+            model_output_root=args.model_output_root or None,
             repo_root=repo_root,
         )
         print(f"Loaded split={args.split!r}")

@@ -39,6 +39,13 @@ except ImportError:
 from backend.src.services.gemini_translation import translate_text
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+SCRIPTS_DIR = Path(__file__).resolve().parent
+for _p in (REPO_ROOT, SCRIPTS_DIR):
+    if str(_p) not in sys.path:
+        sys.path.insert(0, str(_p))
+
+from model_pipeline_paths import find_translation_inputs, resolve_pipeline_and_model_roots, split_dirs
+
 VALID_SPLITS = ("dev", "test", "holdout")
 TRANSLATION_INPUTS_BASENAME = "translation_inputs"
 
@@ -48,7 +55,9 @@ def _parse_args() -> argparse.Namespace:
         description="Per-group translation metrics using Fairlearn MetricFrame (bias analysis)."
     )
     p.add_argument("--split", type=str, default="dev", choices=VALID_SPLITS)
-    p.add_argument("--data-dir", type=str, default="", help="Override data/processed")
+    p.add_argument("--data-dir", type=str, default="", help="Legacy: single root.")
+    p.add_argument("--pipeline-data-dir", type=str, default="")
+    p.add_argument("--model-output-root", type=str, default="")
     p.add_argument(
         "--config-id",
         type=str,
@@ -72,24 +81,8 @@ def _parse_args() -> argparse.Namespace:
     return p.parse_args()
 
 
-def _resolve_processed_dir(repo_root: Path, override: str) -> Path:
-    if override:
-        p = Path(override)
-        return p if p.is_absolute() else repo_root / p
-    return repo_root / "data" / "processed"
-
-
-def _find_inputs(split_dir: Path, basename: str) -> Path:
-    for ext in (".parquet", ".csv"):
-        p = split_dir / f"{basename}{ext}"
-        if p.exists():
-            return p
-    raise FileNotFoundError(f"No {basename}.parquet or .csv in {split_dir}")
-
-
-def _load_eval(split_dir: Path, max_rows: int, basename: str) -> pd.DataFrame:
-    path = _find_inputs(split_dir, basename)
-    df = pd.read_parquet(path) if path.suffix.lower() == ".parquet" else pd.read_csv(path)
+def _load_eval(inputs_path: Path, max_rows: int) -> pd.DataFrame:
+    df = pd.read_parquet(inputs_path) if inputs_path.suffix.lower() == ".parquet" else pd.read_csv(inputs_path)
     for col in ["source_text", "source_language", "target_language", "reference_translation"]:
         if col not in df.columns:
             raise ValueError(f"Eval table must have column {col}")
@@ -130,18 +123,27 @@ def _run_config(config_id: str, features: pd.DataFrame, delay: float) -> List[st
 def main() -> None:
     args = _parse_args()
     split = args.split
-    processed_root = _resolve_processed_dir(REPO_ROOT, args.data_dir)
-    split_dir = processed_root / split
-    if not split_dir.is_dir():
-        print(f"[ERROR] Split directory not found: {split_dir}")
+    pipeline_root, model_root = resolve_pipeline_and_model_roots(
+        REPO_ROOT,
+        data_dir_legacy=args.data_dir,
+        pipeline_data_dir=args.pipeline_data_dir,
+        model_output_root=args.model_output_root,
+    )
+    pipeline_split, model_split = split_dirs(pipeline_root, model_root, split)
+    inputs_path = find_translation_inputs(model_split, pipeline_split, args.inputs_basename)
+    if inputs_path is None:
+        print(f"[ERROR] No {args.inputs_basename} under {model_split} or {pipeline_split}.")
         sys.exit(1)
 
-    df = _load_eval(split_dir, args.max_rows, args.inputs_basename)
+    model_split.mkdir(parents=True, exist_ok=True)
+    out_dir = model_split
+
+    df = _load_eval(inputs_path, args.max_rows)
     features = df[["source_text", "source_language", "target_language"]]
     y_true = df["reference_translation"].astype(str).tolist()
     n = len(y_true)
 
-    print(f"Running bias analysis for {args.config_id} on {n} example(s) from {split_dir}...")
+    print(f"Running bias analysis for {args.config_id} on {n} example(s) from {inputs_path}...")
     y_pred = _run_config(args.config_id, features, args.delay)
     if len(y_pred) < len(y_true):
         y_pred = y_pred + [""] * (len(y_true) - len(y_pred))
@@ -179,7 +181,7 @@ def main() -> None:
         if not group_cols:
             print("[WARN] No valid group columns provided; skipping per-group metrics.")
 
-    out_path = split_dir / f"translation_bias_metrics_{args.config_id}.json"
+    out_path = out_dir / f"translation_bias_metrics_{args.config_id}.json"
     payload: Dict[str, Any] = {
         "task": "translation",
         "split": split,

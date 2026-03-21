@@ -17,8 +17,12 @@ import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
+SCRIPTS_DIR = Path(__file__).resolve().parent
+for _p in (REPO_ROOT, SCRIPTS_DIR):
+    if str(_p) not in sys.path:
+        sys.path.insert(0, str(_p))
+
+from model_pipeline_paths import resolve_pipeline_and_model_roots
 
 VALID_SPLITS = ("dev", "test", "holdout")
 REQUIRED_COLS = ["source_text", "source_language", "target_language", "reference_translation"]
@@ -29,18 +33,22 @@ OUTPUT_BASENAME = "combined_translation_inputs"
 def _parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Merge translation_inputs + court_translation_inputs into combined_translation_inputs.csv")
     p.add_argument("--split", type=str, default="dev", choices=VALID_SPLITS)
-    p.add_argument("--data-dir", type=str, default="", help="Override data/processed")
+    p.add_argument("--data-dir", type=str, default="", help="Legacy: single root.")
+    p.add_argument("--model-output-root", type=str, default="", help="Where inputs live (default: data/model_runs).")
     return p.parse_args()
 
 
 def main() -> None:
     args = _parse_args()
-    processed_root = REPO_ROOT / "data" / "processed"
-    if args.data_dir:
-        processed_root = Path(args.data_dir) if Path(args.data_dir).is_absolute() else REPO_ROOT / args.data_dir
-    split_dir = processed_root / args.split
+    _, model_root = resolve_pipeline_and_model_roots(
+        REPO_ROOT,
+        data_dir_legacy=args.data_dir,
+        pipeline_data_dir="",
+        model_output_root=args.model_output_root,
+    )
+    split_dir = model_root / args.split
     if not split_dir.is_dir():
-        print(f"[ERROR] Split directory not found: {split_dir}")
+        print(f"[ERROR] Model split directory not found: {split_dir}")
         sys.exit(1)
 
     import pandas as pd

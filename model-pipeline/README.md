@@ -28,9 +28,8 @@ It is **separate** from the data pipeline: different DAG, manually triggered, an
 
 - The **data pipeline** (in `data-pipeline/`, orchestrated by Airflow data DAGs) is **not modified** by the model pipeline. It produces:
   - **Existing splits**: `data/processed/dev/`, `data/processed/test/`, `data/processed/holdout/` (each with WAVs and `manifest.json`).
-- The model pipeline **uses these same splits** (dev, test, holdout). For **translation**, it looks for an **optional** per-split file that you add yourself (so the data pipeline code stays untouched):
-  - `data/processed/<split>/translation_inputs.csv` or `translation_inputs.parquet` with columns: `source_text`, `source_language`, `target_language` (and optionally `reference_translation`).
-- If that file is missing, the model pipeline skips translation for that split and exits successfully with a clear message. No changes to the data pipeline are required.
+- The model pipeline **uses these same splits** (dev, test, holdout). **Pipeline-owned files** stay under `data/processed/<split>/` (manifest, WAVs). **Model-run artifacts** (e.g. `translation_inputs.*`, `translation_predictions_*`, validation/bias outputs) default to **`data/model_runs/<split>/`**, with reads falling back to `data/processed/<split>/` if you still have an old layout. Optional per-split `translation_inputs` columns: `source_text`, `source_language`, `target_language` (and `reference_translation` for eval).
+- If manifest-based and file-based inputs are both missing, the model pipeline skips translation for that split and exits successfully with a clear message. No changes to the data pipeline are required.
 
 ### What we do and do not do
 
@@ -58,8 +57,8 @@ When the model pipeline runs, it:
 
 - (In Airflow) Pulls the latest processed data from GCS when `DVC_GCS_BUCKET` is set.
 - Uses the **same split names** as the data pipeline: **dev**, **test**, **holdout**.
-- **Primary path (pulled data):** Reads `data/processed/<split>/manifest.json` (always present after DVC pull). For each manifest entry (file, dataset, speaker*id, emotion), calls the Gemini API to generate a short courtroom phrase and its translation. By default processes the first 10 entries (`--max-rows 10`). Writes `data/processed/<split>/translation_predictions*<config_id>.parquet`.
-- **Optional override:** If `data/processed/<split>/translation_inputs.csv` (or `.parquet`) exists with columns `source_text`, `source_language`, `target_language`, that file is used instead and each row is sent to the translation API.
+- **Primary path (pulled data):** Reads **`data/processed/<split>/manifest.json`** (and WAV paths relative to that split). For each manifest entry, calls the Gemini API (or uses STT when building inputs). By default processes the first 10 entries (`--max-rows 10`). Writes predictions under **`data/model_runs/<split>/`** (e.g. `translation_predictions_<config_id>.parquet`).
+- **Optional override:** If `translation_inputs.csv` (or `.parquet`) exists under **model_runs** or **processed** for that split, that table is used and each row is sent to the translation API.
 - If neither manifest nor translation_inputs exists, the script skips and exits 0 with a message.
 
 ---
@@ -81,6 +80,8 @@ model-pipeline/
 │   ├── run_asr_eval.py                       # Run STT on asr_inputs, compute WER (target < 10%)
 │   ├── run_emotion_eval.py                   # Compute emotion F1 from emotion_predictions (target > 0.70)
 │   ├── run_validation.py                     # 2.3: full validation report (translation + emotion)
+│   ├── run_model_bias_detection.py           # Modeling bias: API/predictions, Fairlearn slices, report
+│   ├── model_bias_detection_core.py          # Helpers for run_model_bias_detection (metrics, disparities)
 │   ├── build_emotion_dataset.py              # Model dev: manifest → emotion_dataset.csv
 │   ├── train_emotion_model.py                # Model dev: train emotion classifier (MFCC)
 │   ├── predict_emotion.py                    # Model dev: inference → emotion_predictions.csv
@@ -92,7 +93,7 @@ model-pipeline/
 ```
 
 - **Model configs and prompts** live at **repo root**: `config/models/*.yaml`, `prompts/*.txt`.
-- **Data** lives at **repo root**: `data/processed/dev`, `data/processed/test`, `data/processed/holdout` (written by the data pipeline). Optional translation inputs: `data/processed/<split>/translation_inputs.csv` or `.parquet` (you add these; the data pipeline is not modified).
+- **Data** at **repo root**: `data/processed/<split>/` — manifest and audio from the data pipeline. **`data/model_runs/<split>/`** — translation inputs, predictions, and eval artifacts from model-pipeline scripts (optional env `PIPELINE_DATA_DIR`, `MODEL_OUTPUT_ROOT`; legacy `--data-dir` uses one root for both).
 - **Backend translation client** lives in `backend/src/services/gemini_translation.py`; the model-pipeline script reuses it.
 
 ---
@@ -131,6 +132,21 @@ After DVC pull, each split contains `manifest.json` (file, dataset, speaker_id, 
 **Optional: translation_inputs**  
 If you add `data/processed/<split>/translation_inputs.csv` with columns `source_text`, `source_language`, `target_language`, the script uses that instead and translates each row.
 
+### Modeling bias detection (API, sliced metrics)
+
+Per-slice translation fairness for the **model/API** (separate from data-pipeline `detect_bias.py`): Fairlearn metrics over `dataset` (corpus), `emotion`, etc., plus disparity flags and mitigation text. New scripts: `scripts/run_model_bias_detection.py`, `scripts/model_bias_detection_core.py`.
+
+```bash
+export PYTHONPATH="${PWD}"
+python model-pipeline/scripts/run_model_bias_detection.py \
+  --split dev --config-id translation_flash_v1 --group-cols dataset,emotion
+# Or reuse predictions only (no extra API calls):
+python model-pipeline/scripts/run_model_bias_detection.py \
+  --split dev --config-id translation_flash_v1 --from-predictions --group-cols dataset,emotion
+```
+
+Full reference: **`docs/model_bias_detection.md`**.
+
 ---
 
 ## 5. Summary (Task 1 checklist)
@@ -161,12 +177,12 @@ The project proposal (*ADA Compliant Courtroom Visual Aid for Blind Individuals*
 
 **Implementation:**
 
-- **Data source:** The model pipeline loads from the **data pipeline output**:
-  - Per-split: `data/processed/<split>/translation_inputs.csv` or `.parquet` (split = `dev` | `test` | `holdout`).
-  - Optional single file: `data/processed/val.parquet` or any path you provide.
+- **Data source:** Translation eval tables live under **`data/model_runs/<split>/`** by default (predictions, validation, bias outputs use the same root). **`data/processed/<split>/`** holds pipeline-owned artifacts (manifest, WAVs, QA JSON); `load_eval_dataset` looks for `translation_inputs.*` under **model_runs first**, then processed, for backward compatibility. Legacy: `--data-dir` on scripts sets one root for both. Optional env: `PIPELINE_DATA_DIR`, `MODEL_OUTPUT_ROOT`.
+  - Per-split: `translation_inputs.csv` or `.parquet` (split = `dev` | `test` | `holdout`).
+  - Optional single file: any path (e.g. `data/processed/val.parquet`).
   - In-memory: `split_features_labels(df)` for a DataFrame from BigQuery or elsewhere.
 - **Module:** `model-pipeline/scripts/build_eval_dataset.py`:
-  - `load_eval_dataset(split)` — load from `data/processed/<split>/translation_inputs.*`.
+  - `load_eval_dataset(split)` — resolve `translation_inputs.*` from model_runs then processed; optional `model_output_root=` / legacy `data_dir=`.
   - `load_eval_dataset_from_file(path)` — load from a single file.
   - `split_features_labels(df)` — split any table into features and labels.
 - **Features vs labels:**
@@ -179,7 +195,7 @@ The project proposal (*ADA Compliant Courtroom Visual Aid for Blind Individuals*
 ### 2.1 Clarifications (FAQ)
 
 **Is 2.1 implemented properly?**  
-Yes. The eval module loads from pipeline output (`data/processed/<split>/translation_inputs.csv` or `.parquet`), splits into features (e.g. `source_text`, `source_language`, `target_language`) and labels (`reference_translation`), and supports `load_eval_dataset(split)`, `load_eval_dataset_from_file(path)`, and `split_features_labels(df)` for any DataFrame source.
+Yes. The eval module loads `translation_inputs` from **`data/model_runs/<split>/` first**, then `data/processed/<split>/`, splits into features (e.g. `source_text`, `source_language`, `target_language`) and labels (`reference_translation`), and supports `load_eval_dataset(split)`, `load_eval_dataset_from_file(path)`, and `split_features_labels(df)` for any DataFrame source.
 
 **Should `translation_inputs.csv` be based on audio files or court-related content?**  
 Both are valid; you can use one or both.

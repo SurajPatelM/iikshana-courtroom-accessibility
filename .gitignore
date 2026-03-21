@@ -214,6 +214,8 @@ data/raw/*
 !data/raw/.gitkeep
 data/processed/*
 !data/processed/.gitkeep
+data/model_runs/*
+!data/model_runs/.gitkeep
 data-pipeline/logs/scheduler/
 data-pipeline/data/raw/*
 model-pipeline/artifacts/
@@ -221,3 +223,4 @@ model-pipeline/artifacts/
 # MLflow tracking and local DB (experiments)
 mlruns/
 mlflow.db
+*.json

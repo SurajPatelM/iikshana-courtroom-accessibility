@@ -25,8 +25,12 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
+SCRIPTS_DIR = Path(__file__).resolve().parent
+for _p in (REPO_ROOT, SCRIPTS_DIR):
+    if str(_p) not in sys.path:
+        sys.path.insert(0, str(_p))
+
+from model_pipeline_paths import resolve_pipeline_and_model_roots, split_dirs
 
 from backend.src.services.groq_stt_service import (
     transcribe_audio,
@@ -57,7 +61,24 @@ def _parse_args() -> argparse.Namespace:
         description="Build translation_inputs.csv from pipeline audio (manifest + STT + reference mapping)."
     )
     p.add_argument("--split", type=str, default="dev", choices=VALID_SPLITS)
-    p.add_argument("--data-dir", type=str, default="", help="Override data/processed")
+    p.add_argument(
+        "--data-dir",
+        type=str,
+        default="",
+        help="Legacy: single root for pipeline+outputs (overrides split layout below).",
+    )
+    p.add_argument(
+        "--pipeline-data-dir",
+        type=str,
+        default="",
+        help="Root with dev/test/holdout containing manifest+WAVs (default: data/processed).",
+    )
+    p.add_argument(
+        "--model-output-root",
+        type=str,
+        default="",
+        help="Root for translation_inputs.csv per split (default: data/model_runs).",
+    )
     p.add_argument(
         "--max-rows",
         type=int,
@@ -89,13 +110,6 @@ def _parse_args() -> argparse.Namespace:
         help="Random seed for --shuffle (e.g. 42). Omit for different files each run.",
     )
     return p.parse_args()
-
-
-def _resolve_processed_dir(repo_root: Path, override: str) -> Path:
-    if override:
-        path = Path(override)
-        return path if path.is_absolute() else repo_root / path
-    return repo_root / "data" / "processed"
 
 
 def _load_manifest(split_dir: Path) -> List[Dict[str, Any]]:
@@ -131,16 +145,21 @@ def _reference_translation_for_entry(entry: Dict[str, Any], file_name: str) -> s
 
 def main() -> None:
     args = _parse_args()
-    processed_root = _resolve_processed_dir(REPO_ROOT, args.data_dir)
-    split_dir = processed_root / args.split
+    pipeline_root, model_root = resolve_pipeline_and_model_roots(
+        REPO_ROOT,
+        data_dir_legacy=args.data_dir,
+        pipeline_data_dir=args.pipeline_data_dir,
+        model_output_root=args.model_output_root,
+    )
+    pipeline_split, model_split = split_dirs(pipeline_root, model_root, args.split)
 
-    if not split_dir.is_dir():
-        print(f"[ERROR] Split directory not found: {split_dir}")
+    if not pipeline_split.is_dir():
+        print(f"[ERROR] Pipeline split not found (manifest/WAVs): {pipeline_split}")
         sys.exit(1)
 
-    manifest = _load_manifest(split_dir)
+    manifest = _load_manifest(pipeline_split)
     if not manifest:
-        print(f"[ERROR] No {MANIFEST_FILENAME} in {split_dir}")
+        print(f"[ERROR] No {MANIFEST_FILENAME} in {pipeline_split}")
         sys.exit(1)
 
     if args.shuffle:
@@ -159,7 +178,7 @@ def main() -> None:
         file_name = entry.get("file", "")
         if not file_name:
             continue
-        wav_path = split_dir / file_name
+        wav_path = pipeline_split / file_name
         if not wav_path.exists() or wav_path.suffix.lower() not in AUDIO_EXTENSIONS:
             print(f"[SKIP] Missing or not audio: {wav_path}")
             continue
@@ -206,9 +225,12 @@ def main() -> None:
         print("[ERROR] No rows with reference_translation (e.g. only non-RAVDESS?). Add ref mapping or use RAVDESS.")
         sys.exit(1)
 
-    out_path = split_dir / f"{TRANSLATION_INPUTS_BASENAME}.csv"
+    model_split.mkdir(parents=True, exist_ok=True)
+    out_path = model_split / f"{TRANSLATION_INPUTS_BASENAME}.csv"
     df.to_csv(out_path, index=False)
-    print(f"Wrote {len(df)} rows to {out_path} (from pipeline audio + STT + reference mapping).")
+    print(
+        f"Wrote {len(df)} rows to {out_path} (from {pipeline_split} audio + STT + reference mapping)."
+    )
     print("Run build_eval_dataset.py --split dev and run_translation_eval.py to use this table.")
 
 

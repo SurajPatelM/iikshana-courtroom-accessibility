@@ -20,8 +20,12 @@ import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
+SCRIPTS_DIR = Path(__file__).resolve().parent
+for _p in (REPO_ROOT, SCRIPTS_DIR):
+    if str(_p) not in sys.path:
+        sys.path.insert(0, str(_p))
+
+from model_pipeline_paths import resolve_pipeline_and_model_roots
 
 VALID_SPLITS = ("dev", "test", "holdout")
 COURT_PHRASES_BASENAME = "court_phrases.csv"
@@ -34,7 +38,8 @@ def _parse_args() -> argparse.Namespace:
         description="Build court_translation_inputs.csv from data/court_phrases.csv."
     )
     p.add_argument("--split", type=str, default="dev", choices=VALID_SPLITS)
-    p.add_argument("--data-dir", type=str, default="", help="Override data/processed")
+    p.add_argument("--data-dir", type=str, default="", help="Legacy: single root for outputs.")
+    p.add_argument("--model-output-root", type=str, default="", help="Model artifacts root (default: data/model_runs).")
     p.add_argument(
         "--phrases-path",
         type=str,
@@ -46,11 +51,13 @@ def _parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = _parse_args()
-    processed_root = REPO_ROOT / "data" / "processed"
-    if args.data_dir:
-        processed_root = Path(args.data_dir)
-        if not processed_root.is_absolute():
-            processed_root = REPO_ROOT / processed_root
+    _, model_root = resolve_pipeline_and_model_roots(
+        REPO_ROOT,
+        data_dir_legacy=args.data_dir,
+        pipeline_data_dir="",
+        model_output_root=args.model_output_root,
+    )
+    model_split = model_root / args.split
 
     phrases_path = Path(args.phrases_path) if args.phrases_path else REPO_ROOT / "data" / COURT_PHRASES_BASENAME
     if not phrases_path.exists():
@@ -68,9 +75,8 @@ def main() -> None:
         print("[ERROR] No rows in court phrases CSV.")
         sys.exit(1)
 
-    split_dir = processed_root / args.split
-    split_dir.mkdir(parents=True, exist_ok=True)
-    out_path = split_dir / OUTPUT_BASENAME
+    model_split.mkdir(parents=True, exist_ok=True)
+    out_path = model_split / OUTPUT_BASENAME
     df.to_csv(out_path, index=False)
     print(f"Wrote {len(df)} court-phrase rows to {out_path}")
     print("Use this file for config search on court content, or merge with translation_inputs.csv for combined eval.")

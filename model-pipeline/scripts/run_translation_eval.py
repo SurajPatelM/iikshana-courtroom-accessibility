@@ -27,10 +27,18 @@ from typing import Any, Dict, List
 
 # Repo root must be on path so backend and config are importable
 REPO_ROOT = Path(__file__).resolve().parents[2]
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
+SCRIPTS_DIR = Path(__file__).resolve().parent
+for _p in (REPO_ROOT, SCRIPTS_DIR):
+    if str(_p) not in sys.path:
+        sys.path.insert(0, str(_p))
 
 import pandas as pd
+
+from model_pipeline_paths import (
+    find_translation_inputs,
+    resolve_pipeline_and_model_roots,
+    split_dirs,
+)
 
 from backend.src.services.gemini_translation import (
     _load_model_config,
@@ -67,12 +75,9 @@ def _parse_args() -> argparse.Namespace:
         default="translation_flash_v1",
         help="Translation model configuration id (config/models/<id>.yaml).",
     )
-    parser.add_argument(
-        "--data-dir",
-        type=str,
-        default="",
-        help="Override processed data directory (default: data/processed).",
-    )
+    parser.add_argument("--data-dir", type=str, default="", help="Legacy: single root for pipeline+model outputs.")
+    parser.add_argument("--pipeline-data-dir", type=str, default="", help="Pipeline root (default: data/processed).")
+    parser.add_argument("--model-output-root", type=str, default="", help="Model artifacts root (default: data/model_runs).")
     parser.add_argument(
         "--max-rows",
         type=int,
@@ -99,14 +104,6 @@ def _parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def _resolve_processed_dir(repo_root: Path, override: str) -> Path:
-    """Resolve data/processed directory."""
-    if override:
-        p = Path(override)
-        return p if p.is_absolute() else repo_root / p
-    return repo_root / "data" / "processed"
-
-
 def _load_manifest(split_dir: Path) -> List[Dict[str, Any]]:
     """Load manifest.json from the split directory."""
     path = split_dir / MANIFEST_FILENAME
@@ -115,15 +112,6 @@ def _load_manifest(split_dir: Path) -> List[Dict[str, Any]]:
     with path.open("r", encoding="utf-8") as f:
         data = json.load(f)
     return data if isinstance(data, list) else []
-
-
-def _find_translation_inputs(split_dir: Path) -> Path | None:
-    """Return path to translation_inputs.parquet or .csv if it exists."""
-    for ext in (".parquet", ".csv"):
-        path = split_dir / f"{TRANSLATION_INPUTS_BASENAME}{ext}"
-        if path.exists():
-            return path
-    return None
 
 
 def _run_on_manifest(
@@ -267,41 +255,44 @@ def _run_translation_inputs(path: Path, config_id: str) -> pd.DataFrame:
 
 def main() -> None:
     args = _parse_args()
-    processed_dir = _resolve_processed_dir(REPO_ROOT, args.data_dir)
-    split_dir = processed_dir / args.split
+    pipeline_root, model_root = resolve_pipeline_and_model_roots(
+        REPO_ROOT,
+        data_dir_legacy=args.data_dir,
+        pipeline_data_dir=args.pipeline_data_dir,
+        model_output_root=args.model_output_root,
+    )
+    pipeline_split, model_split = split_dirs(pipeline_root, model_root, args.split)
 
-    if not split_dir.is_dir():
+    if not pipeline_split.is_dir():
         print(
-            f"[SKIP] Split directory not found: {split_dir}. "
+            f"[SKIP] Pipeline split not found: {pipeline_split}. "
             "Ensure the data pipeline has produced data/processed/dev, test, and/or holdout."
         )
         sys.exit(0)
 
-    # Prefer translation_inputs if present (explicit text table)
-    inputs_path = _find_translation_inputs(split_dir)
+    inputs_path = find_translation_inputs(model_split, pipeline_split, TRANSLATION_INPUTS_BASENAME)
     if inputs_path is not None:
-        print(f"Using {inputs_path.name} for translation inputs...")
+        print(f"Using {inputs_path} for translation inputs...")
         df = _run_translation_inputs(inputs_path, args.config_id)
         n_rows = len(df)
         print(f"Calling Gemini API for {n_rows} row(s) (config={args.config_id})...")
     else:
-        # Use manifest.json from pulled data (always present after DVC pull)
-        manifest = _load_manifest(split_dir)
+        manifest = _load_manifest(pipeline_split)
         if not manifest:
             print(
-                f"[SKIP] No {MANIFEST_FILENAME} and no {TRANSLATION_INPUTS_BASENAME} in {split_dir}. "
-                "Pull data from GCS first (dvc_pull task) or add translation_inputs.csv."
+                f"[SKIP] No {MANIFEST_FILENAME} in {pipeline_split} and no "
+                f"{TRANSLATION_INPUTS_BASENAME} under {model_split} or {pipeline_split}."
             )
             sys.exit(0)
         n_rows = min(len(manifest), args.max_rows)
         use_stt = not args.no_stt
         print(
-            f"Using {MANIFEST_FILENAME} from pulled data: processing {n_rows} of {len(manifest)} entries "
+            f"Using {MANIFEST_FILENAME} from {pipeline_split}: processing {n_rows} of {len(manifest)} entries "
             f"(config={args.config_id}, STT={'on' if use_stt else 'off'})..."
         )
         df = _run_on_manifest(
             manifest,
-            split_dir=split_dir,
+            split_dir=pipeline_split,
             config_id=args.config_id,
             max_rows=args.max_rows,
             target_language=args.target_language,
@@ -309,8 +300,9 @@ def main() -> None:
             stt_model=args.stt_model,
         )
 
+    model_split.mkdir(parents=True, exist_ok=True)
     out_name = f"translation_predictions_{args.config_id}.csv"
-    out_path = split_dir / out_name
+    out_path = model_split / out_name
     df.to_csv(out_path, index=False)
     print(f"Done: {len(df)} API call(s), CSV output saved to {out_path}")
 

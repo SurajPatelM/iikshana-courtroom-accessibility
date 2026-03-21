@@ -24,10 +24,18 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
+SCRIPTS_DIR = Path(__file__).resolve().parent
+for _p in (REPO_ROOT, SCRIPTS_DIR):
+    if str(_p) not in sys.path:
+        sys.path.insert(0, str(_p))
 
 import pandas as pd
+
+from model_pipeline_paths import (
+    find_translation_inputs,
+    resolve_pipeline_and_model_roots,
+    split_dirs,
+)
 
 from backend.src.services.gemini_translation import translate_text
 
@@ -55,7 +63,9 @@ def _parse_args() -> argparse.Namespace:
         description="Task 2.2: Run config/prompt search, compute metrics, select best config."
     )
     p.add_argument("--split", type=str, default="dev", choices=VALID_SPLITS)
-    p.add_argument("--data-dir", type=str, default="", help="Override data/processed")
+    p.add_argument("--data-dir", type=str, default="", help="Legacy: single root for pipeline+model outputs.")
+    p.add_argument("--pipeline-data-dir", type=str, default="", help="Pipeline root (default: data/processed).")
+    p.add_argument("--model-output-root", type=str, default="", help="Model artifacts root (default: data/model_runs).")
     p.add_argument(
         "--configs",
         type=str,
@@ -102,25 +112,9 @@ def _parse_args() -> argparse.Namespace:
     return p.parse_args()
 
 
-def _resolve_processed_dir(repo_root: Path, override: str) -> Path:
-    if override:
-        path = Path(override)
-        return path if path.is_absolute() else repo_root / path
-    return repo_root / "data" / "processed"
-
-
-def _find_translation_inputs(split_dir: Path, basename: str = TRANSLATION_INPUTS_BASENAME) -> Path:
-    for ext in (".parquet", ".csv"):
-        p = split_dir / f"{basename}{ext}"
-        if p.exists():
-            return p
-    raise FileNotFoundError(f"No {basename}.parquet or .csv in {split_dir}")
-
-
-def _load_eval_data(
-    split_dir: Path, max_rows: int, inputs_basename: str = TRANSLATION_INPUTS_BASENAME
+def _load_eval_data_from_path(
+    path: Path, max_rows: int
 ) -> tuple[pd.DataFrame, pd.Series]:
-    path = _find_translation_inputs(split_dir, basename=inputs_basename)
     if path.suffix.lower() == ".parquet":
         df = pd.read_parquet(path)
     else:
@@ -228,12 +222,13 @@ def _run_config(
 
 def main() -> None:
     args = _parse_args()
-    processed_root = _resolve_processed_dir(REPO_ROOT, args.data_dir)
-    split_dir = processed_root / args.split
-
-    if not split_dir.is_dir():
-        print(f"[ERROR] Split directory not found: {split_dir}")
-        sys.exit(1)
+    pipeline_root, model_root = resolve_pipeline_and_model_roots(
+        REPO_ROOT,
+        data_dir_legacy=args.data_dir,
+        pipeline_data_dir=args.pipeline_data_dir,
+        model_output_root=args.model_output_root,
+    )
+    pipeline_split, model_split = split_dirs(pipeline_root, model_root, args.split)
 
     inputs_basename = (args.inputs_basename or TRANSLATION_INPUTS_BASENAME).strip()
     if not inputs_basename.endswith(".csv") and not inputs_basename.endswith(".parquet"):
@@ -250,8 +245,15 @@ def main() -> None:
     else:
         config_ids = DEFAULT_CONFIG_IDS
 
-    print(f"Loading eval data from {split_dir} (basename={inputs_basename})...")
-    features, labels = _load_eval_data(split_dir, args.max_rows, inputs_basename)
+    inputs_path = find_translation_inputs(model_split, pipeline_split, inputs_basename)
+    if inputs_path is None:
+        print(
+            f"[ERROR] No {inputs_basename}.csv/.parquet under {model_split} or {pipeline_split}."
+        )
+        sys.exit(1)
+
+    print(f"Loading eval data from {inputs_path}...")
+    features, labels = _load_eval_data_from_path(inputs_path, args.max_rows)
     n = len(features)
     print(f"Evaluating {len(config_ids)} config(s) on {n} row(s), metric={args.metric}")
 
@@ -308,7 +310,8 @@ def main() -> None:
         payload["best_meets_proposal_glossary_target"] = best["glossary_enforcement"] >= PROPOSAL_GLOSSARY_TARGET
         print(f"  Proposal glossary target > {PROPOSAL_GLOSSARY_TARGET:.0%}: {'yes' if payload['best_meets_proposal_glossary_target'] else 'no'}")
 
-    out_path = Path(args.output) if args.output else split_dir / (
+    model_split.mkdir(parents=True, exist_ok=True)
+    out_path = Path(args.output) if args.output else model_split / (
         "config_search_results.json" if inputs_basename == TRANSLATION_INPUTS_BASENAME else f"config_search_results_{inputs_basename}.json"
     )
     out_path.parent.mkdir(parents=True, exist_ok=True)
