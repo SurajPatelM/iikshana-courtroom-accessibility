@@ -140,7 +140,7 @@ jobs:
           echo "Frontend source check passed."
 
   # -------------------------------------------------------
-  # Job 4: MLflow quality gate — metrics thresholds
+  # Job 4: MLOps quality gate — metrics + bias + config search
   # -------------------------------------------------------
   mlops-quality-gate:
     name: MLOps Quality Gate
@@ -156,15 +156,14 @@ jobs:
         with:
           python-version: "3.10"
 
-      - name: Run quality gate
+      - name: Run quality gate (BLEU / chrF / exact match)
         run: python scripts/quality_gate.py
-        # Passes if no metrics file exists yet (metrics generated at runtime)
-        # Fails if metrics exist but fall below thresholds
 
-      - name: Run bias gate
+      - name: Run bias gate (disparity threshold)
         run: python scripts/bias_gate.py
-        # Passes if no bias report exists yet
-        # Fails if disparities exceed MAX_DISPARITIES threshold
+
+      - name: Run config search gate (best config meets BLEU target)
+        run: python scripts/config_search_gate.py
 
   # -------------------------------------------------------
   # Job 5: Final quality gate — all jobs must pass
@@ -176,4 +175,25 @@ jobs:
 
     steps:
       - name: All checks passed
-        run: echo "All CI checks passed — tests, quality gate, and bias gate. Ready for deployment."
+        run: echo "All CI checks passed — tests, quality gate, bias gate, config search. Ready for deployment."
+
+  # -------------------------------------------------------
+  # Job 6: Notify on failure
+  # -------------------------------------------------------
+  notify-failure:
+    name: Notify on Failure
+    runs-on: ubuntu-latest
+    needs: [test-data-pipeline, test-backend, test-frontend, mlops-quality-gate, quality-gate]
+    if: failure()
+
+    steps:
+      - name: Send failure notification
+        run: |
+          echo "CI pipeline failed on branch ${{ github.ref_name }}"
+          echo "Commit: ${{ github.event.head_commit.message }}"
+          echo "Author: ${{ github.event.head_commit.author.name }}"
+          echo "Run URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          # Slack notification (uncomment and add SLACK_WEBHOOK_URL secret to enable)
+          # curl -X POST -H 'Content-type: application/json' \
+          #   --data "{\"text\":\"❌ CI failed on *${{ github.ref_name }}*\nCommit: ${{ github.event.head_commit.message }}\nAuthor: ${{ github.event.head_commit.author.name }}\n<https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Run>\"}" \
+          #   ${{ secrets.SLACK_WEBHOOK_URL }}
