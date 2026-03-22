@@ -128,7 +128,7 @@ jobs:
 
       - name: Install frontend dependencies
         working-directory: frontend
-        run: npm install react-scripts --save && npm install
+        run: npm install --legacy-peer-deps && npm install react-scripts --legacy-peer-deps
 
       - name: Lint frontend
         working-directory: frontend
