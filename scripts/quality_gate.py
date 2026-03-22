@@ -3,10 +3,14 @@ Quality gate for CI/CD pipeline.
 Reads validation_metrics.json produced by run_validation.py and fails
 if metrics fall below defined thresholds.
 
+Output location (model-pipeline): data/model_runs/<split>/validation_metrics.json
+Fallback (legacy):                 data/processed/<split>/validation_metrics.json
+                                   data/processed/evaluation_metrics.json
+
 Thresholds (from project targets):
-  - BLEU  >= 40.0  (target: > 0.40 expressed as 0-100 scale)
-  - chrF  >= 50.0  (reasonable baseline for legal translation)
-  - exact_match_accuracy >= 0.10  (10% floor)
+  - BLEU  >= 40.0
+  - chrF  >= 50.0
+  - exact_match_accuracy >= 0.10
 
 Exit code 0 = passed, 1 = failed (blocks CI pipeline).
 """
@@ -22,11 +26,14 @@ EXACT_MATCH_MIN = 0.10
 # --------------------------------
 
 METRICS_CANDIDATES = [
-    # model-dev-1 / run_validation.py output locations
+    # model-pipeline output (data/model_runs/<split>/)
+    Path("data/model_runs/dev/validation_metrics.json"),
+    Path("data/model_runs/test/validation_metrics.json"),
+    Path("data/model_runs/holdout/validation_metrics.json"),
+    # legacy / data-pipeline output
     Path("data/processed/dev/validation_metrics.json"),
     Path("data/processed/test/validation_metrics.json"),
     Path("data/processed/holdout/validation_metrics.json"),
-    # legacy / evaluate_models.py output
     Path("data/processed/evaluation_metrics.json"),
 ]
 
@@ -39,13 +46,11 @@ def find_metrics_file() -> Path | None:
 
 
 def extract_metrics(data: dict) -> dict:
-    """Extract flat metrics dict from either output format."""
-    # run_validation.py format: data["metrics"] or data["configs"][0]
+    """Extract flat metrics dict from run_validation.py output format."""
     if "metrics" in data:
         return data["metrics"]
     if "configs" in data and data["configs"]:
         return data["configs"][0]
-    # evaluate_models.py flat format
     return data
 
 
@@ -84,7 +89,6 @@ def run_gate(metrics_path: Path) -> bool:
 
 
 def main() -> None:
-    # Allow overriding metrics path via CLI arg
     if len(sys.argv) > 1:
         metrics_path = Path(sys.argv[1])
     else:
@@ -92,7 +96,7 @@ def main() -> None:
 
     if metrics_path is None or not metrics_path.exists():
         print("⚠️  No metrics file found. Skipping quality gate (metrics not yet generated).")
-        print(f"   Looked in: {[str(p) for p in METRICS_CANDIDATES]}")
+        print(f"   Searched: {[str(p) for p in METRICS_CANDIDATES]}")
         sys.exit(0)
 
     passed = run_gate(metrics_path)
