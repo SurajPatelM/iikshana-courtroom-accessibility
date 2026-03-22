@@ -140,13 +140,40 @@ jobs:
           echo "Frontend source check passed."
 
   # -------------------------------------------------------
-  # Job 4: Quality gate — all tests must pass
+  # Job 4: MLflow quality gate — metrics thresholds
   # -------------------------------------------------------
-  quality-gate:
-    name: Quality Gate
+  mlops-quality-gate:
+    name: MLOps Quality Gate
     runs-on: ubuntu-latest
     needs: [test-data-pipeline, test-backend, test-frontend]
 
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Run quality gate
+        run: python scripts/quality_gate.py
+        # Passes if no metrics file exists yet (metrics generated at runtime)
+        # Fails if metrics exist but fall below thresholds
+
+      - name: Run bias gate
+        run: python scripts/bias_gate.py
+        # Passes if no bias report exists yet
+        # Fails if disparities exceed MAX_DISPARITIES threshold
+
+  # -------------------------------------------------------
+  # Job 5: Final quality gate — all jobs must pass
+  # -------------------------------------------------------
+  quality-gate:
+    name: Quality Gate
+    runs-on: ubuntu-latest
+    needs: [test-data-pipeline, test-backend, test-frontend, mlops-quality-gate]
+
+    steps:
       - name: All checks passed
-        run: echo "All CI checks passed. Ready for deployment."
+        run: echo "All CI checks passed — tests, quality gate, and bias gate. Ready for deployment."
