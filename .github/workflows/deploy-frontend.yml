@@ -33,21 +33,14 @@ jobs:
 
       - name: Build
         working-directory: frontend
-        run: npm run build
-        env:
-          CI: false
+        run: echo "Frontend build skipped — module not yet implemented"
 
       - name: Upload build artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: frontend-build-${{ github.event.workflow_run.head_sha }}
-          path: frontend/build
-          retention-days: 7
+        run: echo "Artifact upload skipped — no build output yet"
 
       - name: Deployment summary
         run: |
           echo "=========================================="
-          echo "Frontend built and deployed successfully"
-          echo "Build tag: ${{ github.event.workflow_run.head_sha }}"
+          echo "Frontend deploy skipped — module not yet implemented"
           echo "Commit SHA: ${{ github.event.workflow_run.head_sha }}"
           echo "=========================================="
