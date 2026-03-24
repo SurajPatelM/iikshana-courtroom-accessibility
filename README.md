@@ -151,6 +151,7 @@ iikshana-courtroom-accessibility/
 - **Node.js**: 18+ (for the React frontend)
 - **npm**: comes with Node
 - **Docker + Docker Compose** (for Airflow-based pipeline orchestration; optional but recommended)
+- **MLflow**: 2.x — installed via `requirements.txt`; used for experiment tracking when running multi-config evaluations (`--configs`).
 
 > For production or realistic evaluation, ensure a machine with sufficient CPU/RAM, low-latency audio IO, and restricted network egress.
 
@@ -289,6 +290,58 @@ See `model-pipeline/README.md` for Task 1 setup and usage.
 | WER (benchmark audio)     | < 10%       |
 | Glossary enforcement      | ≥ 95%       |
 | Interpreter override rate | < 20%       |
+
+### MLflow Experiment Tracking
+
+When running multi-config evaluations with `--configs`, each configuration is
+automatically logged as a separate MLflow run under the experiment
+**`iikshana-translation`**.
+
+#### What gets logged per run
+
+| Category   | Key                        | Value / Source                          |
+|------------|----------------------------|-----------------------------------------|
+| **Params** | `config_id`                | The config identifier (e.g. `translation_flash_v1`) |
+|            | `split`                    | `dev`, `test`, or `holdout`             |
+|            | `inputs_basename`          | Stem of the input CSV file              |
+|            | `data_dir`                 | Defaults to `data/processed`            |
+|            | `n_samples`                | Number of rows evaluated                |
+| **Metrics**| `bleu`                     | BLEU score (float)                      |
+|            | `chrf`                     | chrF score (float)                      |
+|            | `exact_match_accuracy`     | Exact-match accuracy (float)            |
+|            | `glossary_enforcement`     | Fraction of glossary terms preserved — only logged when present |
+| **Artifacts** | `validation_metrics_json` | Full metrics as JSON                 |
+|            | `validation_metrics_csv`   | Full metrics as CSV                     |
+|            | `bar_plot`                 | Bar chart comparing configs             |
+|            | `segment_hist`             | Per-segment score histogram             |
+|            | `confusion_plot`           | Confusion matrix plot                   |
+
+![MLflow Dashboard](mlruns/screenshot/mlflow.png)
+
+#### Tracking URI
+
+By default, runs are stored locally under `./mlruns`.  
+Override this by setting the environment variable before running:
+```bash
+export MLFLOW_TRACKING_URI=http://mlflow-server:5000
+```
+
+If the variable is not set, the script falls back to `file:./mlruns`.
+
+#### Launching the MLflow UI
+```bash
+
+mlflow ui --backend-store-uri "file:./mlruns"
+
+```
+
+Use the UI to:
+- Compare BLEU / chrF / exact-match / glossary-enforcement across configs side by side.
+- Download logged artifacts (plots, CSVs, JSONs) directly from the run view.
+- Filter and sort runs by any logged parameter or metric.
+
+> **Note:** MLflow logging is only triggered when `--configs` is non-empty.
+> Single-config runs do not create MLflow entries.
 
 ### Bias Detection
 
