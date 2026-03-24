@@ -60,6 +60,10 @@ package that configuration and push it to registry.
 - `full_pipeline_dag` can run data stages followed by model stages.
 - CLI remains the fastest path for local iteration/debugging.
 
+**End-to-end run (example):** Airflow Graph view for `full_pipeline_dag` with all tasks succeeded — from `dvc_pull` through triggered substages, `dvc_push`, `build_translation_inputs_from_audio`, `run_config_search`, and `mode_setup`:
+
+![Apache Airflow: full_pipeline_dag — all tasks succeeded](images/full_pipeline_airflow_dag.png)
+
 ---
 
 ## Scope 
