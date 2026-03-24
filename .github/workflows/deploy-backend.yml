@@ -1,13 +1,65 @@
 name: Deploy Backend
 
 on:
-  push:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
     branches: [main]
 
 jobs:
-  deploy:
+  deploy-backend:
+    name: Build & Push to Artifact Registry
     runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+
     steps:
-      - uses: actions/checkout@v3
-      - name: Deploy
-        run: echo "Backend deployment will run here"
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install dependencies and run tests before deploy
+        run: |
+          python -m pip install --upgrade pip
+          pip install fastapi uvicorn websockets pytest pytest-asyncio pyyaml requests
+          cd backend && pytest tests/ -v --tb=short
+        env:
+          PYTHONPATH: ${{ github.workspace }}/backend
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: |
+          gcloud auth configure-docker \
+            ${{ secrets.ARTIFACT_REGISTRY_LOCATION }}-docker.pkg.dev --quiet
+
+      - name: Build Docker image
+        run: |
+          docker build \
+            -t ${{ secrets.ARTIFACT_REGISTRY_LOCATION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.ARTIFACT_REGISTRY_REPO }}/iikshana-backend:${{ github.event.workflow_run.head_sha }} \
+            -t ${{ secrets.ARTIFACT_REGISTRY_LOCATION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.ARTIFACT_REGISTRY_REPO }}/iikshana-backend:latest \
+            -f backend/Dockerfile .
+
+      - name: Push Docker image to Artifact Registry
+        run: |
+          docker push ${{ secrets.ARTIFACT_REGISTRY_LOCATION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.ARTIFACT_REGISTRY_REPO }}/iikshana-backend:${{ github.event.workflow_run.head_sha }}
+          docker push ${{ secrets.ARTIFACT_REGISTRY_LOCATION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.ARTIFACT_REGISTRY_REPO }}/iikshana-backend:latest
+
+      - name: Deployment summary
+        run: |
+          echo "=========================================="
+          echo "Backend image pushed to Artifact Registry"
+          echo "Project:  ${{ secrets.GCP_PROJECT_ID }}"
+          echo "Registry: ${{ secrets.ARTIFACT_REGISTRY_LOCATION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.ARTIFACT_REGISTRY_REPO }}"
+          echo "Tags:     latest, ${{ github.event.workflow_run.head_sha }}"
+          echo "Commit SHA: ${{ github.event.workflow_run.head_sha }}"
+          echo "=========================================="

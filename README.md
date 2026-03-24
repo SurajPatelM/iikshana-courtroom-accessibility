@@ -1,4 +1,5 @@
 ## Iikshana: On-Prem Courtroom Language Access System
+
 ### ADA-Aligned Audio Accessibility (Assistive, Not Authoritative)
 
 Iikshana is an **on-prem, AI-assisted courtroom accessibility system** that provides real-time spoken-language support for participants who are blind but can hear.
@@ -11,12 +12,12 @@ The system offers **live speech recognition, translation, and audio playback**, 
 
 ### Team — Group 16 (IE7374 MLOps)
 
-- Aditya Vasisht  
-- Akshata Kumble  
-- Amit Karanth Gurpur  
-- Rohit Abhijit Kulkarni  
-- Shridhar Sunilkumar Pol  
-- Suraj Patel Muthe Gowda  
+- Aditya Vasisht
+- Akshata Kumble
+- Amit Karanth Gurpur
+- Rohit Abhijit Kulkarni
+- Shridhar Sunilkumar Pol
+- Suraj Patel Muthe Gowda
 
 ---
 
@@ -110,7 +111,10 @@ iikshana-courtroom-accessibility/
 │   ├── tests/               # Preprocessing / validation / split tests
 │   ├── config/              # Dataset configuration
 │   └── README.md
-├── airflow/                 # Airflow DAGs + Docker setup for pipeline
+├── model-pipeline/          # Model pipeline (runs after data pipeline; manual trigger)
+│   ├── scripts/             # Apply model + prompts to processed data
+│   └── README.md            # Task 1: Clarify your setup + how to run
+├── airflow/                 # Airflow DAGs + Docker setup (data + model pipelines)
 │   ├── dags/                # full_pipeline_dag and stage DAGs
 │   ├── docker-compose.yaml
 │   └── README.md
@@ -120,6 +124,16 @@ iikshana-courtroom-accessibility/
 │   ├── user_manual.md
 │   ├── deployment_guide.md
 │   └── agent_specifications.md
+├── .github/workflows/       # CI/CD pipeline (GitHub Actions)
+│   ├── ci.yml               # Main CI workflow (tests, evaluation, gates)
+│   ├── deploy-backend.yml   # Backend Docker deploy (main only)
+│   ├── deploy-frontend.yml  # Frontend build deploy (main only)
+│   └── README.md            # CI/CD pipeline documentation
+├── scripts/                 # CI/CD quality gate scripts
+│   ├── quality_gate.py      # Enforces BLEU, chrF, exact match thresholds
+│   ├── bias_gate.py         # Enforces bias detection thresholds
+│   ├── config_search_gate.py # Validates config search results
+│   └── rollback_check.py    # Compares metrics against baseline to prevent regression
 ├── config/                  # Environment-specific app configuration
 │   ├── development.yaml
 │   ├── testing.yaml
@@ -133,10 +147,10 @@ iikshana-courtroom-accessibility/
 
 ### Prerequisites
 
-- **Python**: 3.10+  
-- **Node.js**: 18+ (for the React frontend)  
-- **npm**: comes with Node  
-- **Docker + Docker Compose** (for Airflow-based pipeline orchestration; optional but recommended)  
+- **Python**: 3.10+
+- **Node.js**: 18+ (for the React frontend)
+- **npm**: comes with Node
+- **Docker + Docker Compose** (for Airflow-based pipeline orchestration; optional but recommended)
 
 > For production or realistic evaluation, ensure a machine with sufficient CPU/RAM, low-latency audio IO, and restricted network egress.
 
@@ -198,7 +212,7 @@ python src/main.py
 
 By default this will expose a FastAPI app (and WebSocket endpoints) on `http://localhost:<port>` as configured in `src/main.py` and `config/*.yaml`.
 
-For backend internals and tests, see `backend/src/models/README.md` and `backend/tests/`.
+For backend internals (agents, services, Docker), see `backend/README.md`.
 
 ---
 
@@ -253,19 +267,28 @@ docker compose up      # Airflow web UI at http://localhost:8080
 
 For details on DAGs, data layout, and troubleshooting, see `airflow/README.md` and `data-pipeline/README.md`.
 
+#### 5.3 Model pipeline (manual, after data pipeline)
+
+The **model pipeline** runs separately from the data pipeline. After the data pipeline has produced processed splits (e.g. under `data/processed/`), trigger the **model pipeline** manually to apply the Gemini model and prompts to that data:
+
+- **Via Airflow**: Run the **`model_pipeline_dag`** from the Airflow UI (manual trigger only; it is not part of `full_pipeline_dag`).
+- **Via CLI**: From repo root, `PYTHONPATH=. python model-pipeline/scripts/model_setup.py --split dev --config-id translation_flash_v1` (uses existing splits dev/test/holdout; add `data/processed/<split>/translation_inputs.csv` to run translation).
+
+See `model-pipeline/README.md` for Task 1 setup and usage.
+
 ---
 
 ## Evaluation, Monitoring, and Bias
 
 ### Core Metrics (example targets)
 
-| Metric                    | Target        |
-|---------------------------|--------------|
-| End-to-end latency        | ≤ 2 seconds  |
-| Translation latency       | ≤ 1 second   |
-| WER (benchmark audio)     | < 10%        |
-| Glossary enforcement      | ≥ 95%        |
-| Interpreter override rate | < 20%        |
+| Metric                    | Target      |
+| ------------------------- | ----------- |
+| End-to-end latency        | ≤ 2 seconds |
+| Translation latency       | ≤ 1 second  |
+| WER (benchmark audio)     | < 10%       |
+| Glossary enforcement      | ≥ 95%       |
+| Interpreter override rate | < 20%       |
 
 ### Bias Detection
 
@@ -275,14 +298,31 @@ The pipeline can produce reports such as `data/processed/bias_report.json` with:
 - Fairlearn-based per-group metrics.
 - Detected disparities and mitigation recommendations.
 
-See `data-pipeline/README.md` for how to run:
+The **data pipeline** scripts for offline evaluation and bias detection live in `data-pipeline/scripts/`:
 
-- `scripts/detect_bias.py`
-- `scripts/evaluate_models.py`
-- `scripts/anomaly_check.py`
+- `data-pipeline/scripts/detect_bias.py`
+- `data-pipeline/scripts/anomaly_check.py`
+
+See `data-pipeline/README.md` for how to run these.
+
+The **CI/CD quality gate** scripts in the root `scripts/` folder enforce thresholds automatically during the pipeline:
+
+- `scripts/quality_gate.py` (translation metric thresholds)
+- `scripts/bias_gate.py` (bias detection thresholds)
+- `scripts/config_search_gate.py` (config search validation)
+- `scripts/rollback_check.py` (regression check against baseline)
+
+See `.github/workflows/README.md` for how these gates fit into the CI pipeline.
 
 ---
 
+## CI/CD Pipeline
+
+The project uses GitHub Actions for continuous integration and deployment. The pipeline runs tests for all three layers (data pipeline, backend, frontend), evaluates the model when relevant files change, enforces quality gates on translation metrics and bias, and blocks deployment if anything regresses.
+
+For a full breakdown of every job, the required GitHub Secrets, and how the pipeline maps to the project requirements, see [`.github/workflows/README.md`](.github/workflows/README.md).
+
+---
 
 ## Standards Alignment
 
@@ -290,7 +330,7 @@ The project is designed with reference to:
 
 - ADA Title II (Effective Communication).
 - US DOJ Language Access Guidance.
-+- NCSC Court Technology Guidance.
+  +- NCSC Court Technology Guidance.
 - NIST AI Risk Management Framework.
 
 ---
@@ -310,4 +350,4 @@ It is:
 
 ## License / Intended Use
 
-This repository is intended for **academic and research use only**.  
+This repository is intended for **academic and research use only**.

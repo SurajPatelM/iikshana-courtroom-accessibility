@@ -20,6 +20,10 @@ x-airflow-common: &airflow-common
     # DVC + GCS: set in airflow/.env (DVC_GCS_BUCKET=your-bucket, GOOGLE_APPLICATION_CREDENTIALS path)
     GOOGLE_APPLICATION_CREDENTIALS: ${GOOGLE_APPLICATION_CREDENTIALS:-/opt/airflow/.secrets/gcp-dvc-key.json}
     DVC_GCS_BUCKET: ${DVC_GCS_BUCKET:-}
+    # API keys (set in airflow/.env, do NOT commit real values)
+    GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+    HF_API_TOKEN: ${HF_API_TOKEN:-}
+    GROQ_API_KEY: ${GROQ_API_KEY:-}
     # Alerts (optional): email on failure + Slack webhook
     ALERT_EMAIL: ${ALERT_EMAIL:-}
     SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}

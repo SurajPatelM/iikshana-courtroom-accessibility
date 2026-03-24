@@ -1,0 +1,28 @@
+id: translation_pro_glossary_v1
+provider: vertex-ai
+model_name: gemini-1.5-pro
+task_type: translation
+
+# Prompt template and generation behaviour
+prompt_template_id: translation_glossary_focused
+temperature: 0.0
+top_p: 1.0
+max_output_tokens: 256
+
+# Input / output schema for the translation task
+input_fields:
+  - source_text
+  - source_language
+  - target_language
+
+output_schema:
+  type: text
+  field_name: translated_text
+
+parsing:
+  type: plain_text
+
+postprocessing:
+  normalize_whitespace: true
+  apply_legal_glossary_check: true
+

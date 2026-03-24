@@ -1,0 +1,27 @@
+# Same model and prompt as translation_flash_v1, different temperature (for config search).
+id: translation_flash_temp03
+provider: groq
+model_name: llama-3.1-8b-instant
+task_type: translation
+
+system_prompt_id: translation_baseline_system
+prompt_template_id: translation_baseline_user
+temperature: 0.3
+top_p: 1.0
+max_output_tokens: 256
+
+input_fields:
+  - source_text
+  - source_language
+  - target_language
+
+output_schema:
+  type: text
+  field_name: translated_text
+
+parsing:
+  type: plain_text
+
+postprocessing:
+  normalize_whitespace: true
+  apply_legal_glossary_check: true

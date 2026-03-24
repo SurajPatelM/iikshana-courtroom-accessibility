@@ -1,0 +1,3 @@
+Translate the following from {source_language} to {target_language}. Output only the translation, no explanation.
+
+{source_text}

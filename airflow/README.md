@@ -39,7 +39,8 @@ Allocate **4–8 GB RAM** to Docker for smooth dataset downloads and processing.
 ## Layout
 
 - `dags/` – All DAG definitions:
-  - `full_pipeline_dag.py`
+  - `full_pipeline_dag.py` – data pipeline only (acquisition → … → DVC push)
+  - `model_pipeline_dag.py` – **model pipeline** (manual trigger; runs after data pipeline; see below)
   - `data_acquisition_dag.py`
   - `preprocessing_dag.py`
   - `validation_dag.py`
@@ -65,6 +66,7 @@ These DAGs orchestrate the same stages described in `data-pipeline/README.md`.
 - **`bias_detection_dag`**: Performs data slicing and bias analysis, writing `bias_report.json` under `data/processed/`.
 - **`evaluation_dag`**: Runs API-based evaluation (e.g., STT, translation, emotion) and computes metrics such as WER, BLEU, and F1.
 - **`anomaly_detection_dag`**: Detects anomalies (missing files, distribution shifts, schema violations) and fails the DAG so Airflow can trigger alerts.
+- **`model_pipeline_dag`** (model pipeline, **separate** from data pipeline): Run **manually** after the data pipeline has produced processed data. Applies the configured Gemini model and prompts to that data (e.g. translation evaluation) and writes predictions. Not triggered by `full_pipeline_dag`. See `model-pipeline/README.md` for setup and usage.
 
 ---
 

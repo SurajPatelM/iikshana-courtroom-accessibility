@@ -1,0 +1,257 @@
+You can absolutely satisfy these requirements with an API‑based (pre‑trained) model. The trick is to treat *your prompts, API settings, and model choice as “the model”* and build all the surrounding evaluation / bias / CI/CD pieces around that.
+
+Below is how I’d proceed, step by step, mapping directly to the rubric.
+
+---
+
+### 1. Clarify your setup (assumptions)
+
+Assume something like:
+
+•⁠  ⁠*Model*: Pre‑trained model via API (e.g., OpenAI, Gemini, etc.).
+•⁠  ⁠*Task*: Courtroom accessibility–related classification / scoring / extraction (whatever your project truly does).
+•⁠  ⁠*Data pipeline*: Already outputs a clean, versioned dataset (train/val/test splits) to some storage (CSV/Parquet/BigQuery/etc.).
+
+You will *not* do weight training, but you *will*:
+
+•⁠  ⁠Design prompts and model configs.
+•⁠  ⁠Evaluate performance and fairness.
+•⁠  ⁠Track experiments.
+•⁠  ⁠Package and version the “model configuration” (prompt + settings + code) in a registry.
+
+---
+
+### 2. Model development and ML code (adapted for an API model)
+
+#### 2.1 Loading data from your data pipeline
+
+Implement a small evaluation module that:
+
+•⁠  ⁠*Loads processed data* from your existing pipeline output (e.g., ⁠ data/processed/val.parquet ⁠ or a BigQuery table).
+•⁠  ⁠Splits into *features → prompt input* and *labels → expected output*.
+
+Conceptually:
+
+•⁠  ⁠*Input*: Whatever text / structured info you feed into the LLM.
+•⁠  ⁠*Label*: Golden answer / class / numeric score you compare against.
+
+#### 2.2 “Training” & selecting the best model (prompt & config search)
+
+Instead of training weights, you will:
+
+•⁠  ⁠Define *candidate configurations*, e.g.:
+  - Different prompts (prompt A vs B vs C).
+  - Different models (⁠ gpt-4.1 ⁠ vs ⁠ gpt-4.1-mini ⁠ vs ⁠ gemini-1.5-pro ⁠).
+  - Different parameters (temperature, max tokens, top‑p, etc.).
+•⁠  ⁠Write code that:
+  - Loops over configs.
+  - For each config, calls the API on the validation set.
+  - Computes metrics.
+  - *Selects the best config* based on your metric(s).
+
+Treat each combination as a “model” for the assignment.
+
+#### 2.3 Model validation
+
+Implement a validation script that:
+
+•⁠  ⁠Reads the validation set.
+•⁠  ⁠For each example:
+  - Builds the prompt.
+  - Calls the model API.
+  - Parses the response into the target format (class label, score, etc.).
+•⁠  ⁠Computes metrics like accuracy, precision, recall, F1, AUC (depending on your task).
+•⁠  ⁠Saves:
+  - A metrics JSON / CSV.
+  - Confusion matrix / bar plots as PNGs for your report.
+
+#### 2.4–2.5 Bias detection using slicing
+
+You can still use Fairlearn/TFMA even with an API model, because they care only about *y_true* and *y_pred*:
+
+•⁠  ⁠Add one or more *sensitive attributes* from your data (e.g., disability type, gender, age group, language).
+•⁠  ⁠After generating predictions:
+  - Use *Fairlearn’s ⁠ MetricFrame ⁠* (or your own group‑by) to compute metrics per subgroup.
+  - Produce tables/plots showing per‑slice performance.
+•⁠  ⁠If you detect big disparities, document:
+  - Possible mitigations (e.g., adjusted prompts, re‑weighting data, different thresholds per group, adding constraints in post‑processing).
+  - Even if you cannot fully fix them, explain trade‑offs.
+
+#### 2.6 “Push model to registry” for an API model
+
+You cannot push the underlying weights, but you can push a *model package* that fully specifies how to use the API:
+
+•⁠  ⁠Contents of the “model artifact”:
+  - Model provider and name (e.g., ⁠ openai:gpt-4.1 ⁠).
+  - Prompt templates.
+  - Any downstream parsing logic and thresholds.
+  - Version of your code and data schema.
+•⁠  ⁠Store this as:
+  - A *Docker image* in GCP Artifact Registry *or*
+  - A tarball / config bundle in Artifact Registry / Model Registry.
+•⁠  ⁠Your deployment code will later pull this artifact and know exactly how to call the external API.
+
+---
+
+### 3. Hyperparameter tuning (prompt & API config search)
+
+Treat these as *hyperparameters*:
+
+•⁠  ⁠Prompt template variants.
+•⁠  ⁠Model name.
+•⁠  ⁠Temperature / top‑p.
+•⁠  ⁠Number of exemplars in few‑shot prompt.
+•⁠  ⁠RAG parameters if you have retrieval (top‑k, similarity threshold).
+
+Do:
+
+•⁠  ⁠A small *grid / random search* over a reasonable space (mind API cost!).
+•⁠  ⁠For each config, run validation and log:
+  - Hyperparameters.
+  - Metrics.
+  - Fairness metrics if feasible.
+•⁠  ⁠In your report, show:
+  - What you searched.
+  - How you picked the final configuration.
+
+---
+
+### 4. Experiment tracking and results
+
+Use MLflow / W&B or a simple local logger:
+
+•⁠  ⁠*Per run log*:
+  - Configuration (prompt id, model name, temperature, etc.).
+  - Dataset version.
+  - Metrics (accuracy, F1, etc.).
+  - Fairness metrics / dispersion across slices.
+  - Link / path to prediction CSVs, plots, bias reports.
+•⁠  ⁠*Visualizations*:
+  - Confusion matrices for main task.
+  - Bar charts comparing candidate prompts/models.
+  - Plots of metric vs temperature / vs prompt length, etc.
+•⁠  ⁠In your submission:
+  - Include screenshots/plots that show how the final config was chosen.
+
+---
+
+### 5. Model sensitivity analysis
+
+Because you have an API black box, do *perturbation‑based* analysis:
+
+•⁠  ⁠*Feature sensitivity*:
+  - If your inputs are structured (fields like “type of disability, judge ID, hearing length, etc.”), run “what‑if” tests:
+    - For a set of examples, vary one feature at a time (e.g., change disability type, keep others fixed) and see how predictions change.
+  - Summarize as:
+    - Fraction of examples where prediction changed when feature X changed.
+    - Change in average score when masking/removing feature X.
+•⁠  ⁠*Hyperparameter sensitivity*:
+  - Take your chosen prompt and dataset.
+  - Vary one parameter (e.g., temperature from 0.0 → 0.7).
+  - Plot performance vs that parameter.
+•⁠  ⁠Document which aspects the model is most sensitive to and how that affects trustworthiness.
+
+---
+
+### 6. Bias detection (slicing) – explicitly matching rubric
+
+Concretely:
+
+1.⁠ ⁠*Perform slicing*:
+   - Decide slices, e.g.:
+     - ⁠ disability_type ⁠ (visual, hearing, mobility, cognitive).
+     - ⁠ language ⁠ or ⁠ reading_level ⁠ if relevant.
+   - Tag each validation example with slice attributes.
+2.⁠ ⁠*Track metrics across slices*:
+   - Compute accuracy/F1 per slice.
+   - Compute gap metrics (max difference between any two groups, etc.).
+3.⁠ ⁠*Mitigation*:
+   - If Group A < Group B by a lot:
+     - Adjust prompts to emphasize fairness / accessibility equivalently.
+     - Rerun evaluation.
+     - Optionally post‑process decisions (e.g., lower thresholds for under‑served groups if justified).
+4.⁠ ⁠*Document*:
+   - Which slices you used and why.
+   - What disparities you saw.
+   - What you tried to fix them.
+   - Remaining limitations.
+
+---
+
+### 7. CI/CD pipeline for model development (API‑based)
+
+Even without training jobs, you can automate *evaluation and bias checks*:
+
+•⁠  ⁠*Trigger*:
+  - On PRs or pushes that touch ⁠ model/ ⁠, ⁠ prompts/ ⁠, or ⁠ evaluation/ ⁠ code.
+•⁠  ⁠*Pipeline steps (e.g., GitHub Actions, Cloud Build)*:
+  1. *Build & test*:
+     - Install dependencies.
+     - Run unit tests for your data loading, prompting, parsing logic.
+  2. *Run evaluation on validation set*:
+     - Execute your evaluation script with the current “candidate config”.
+     - Compute metrics and fairness slicing.
+     - Save reports as artifacts of the CI run.
+  3. *Quality gates*:
+     - If main metric < threshold → *fail* pipeline.
+     - If fairness gaps > threshold → *fail* or mark as warning (depending on your design; ideally fail).
+  4. *Registry push / deployment*:
+     - If everything passes:
+       - Build a Docker image containing your inference code + config.
+       - Push image to *GCP Artifact Registry*.
+       - Optionally trigger deployment (e.g., Cloud Run) using that image.
+  5. *Notifications*:
+     - Configure GitHub Actions / Cloud Build notifications:
+       - On failure: notify Slack/email.
+       - On success: optional notification of new “model version”.
+  6. *Rollback*:
+     - Keep previous image tags.
+     - Store metrics per version in a small registry (JSON file, MLflow, etc.).
+     - If a new version is worse, your deployment scripts can:
+       - Automatically use the last “good” tag or
+       - Let you manually select the previous version.
+
+In your report, you can show the CI config YAML and describe the above steps.
+
+---
+
+### 8. Code implementation checklist (for your repo)
+
+Given your constraints, a good structure could be:
+
+•⁠  ⁠*Config & prompts*
+  - ⁠ config/model_config.yaml ⁠ – model name, temperature, etc.
+  - ⁠ prompts/*.txt ⁠ – prompt templates (with IDs and descriptions).
+•⁠  ⁠*Model client*
+  - Code that:
+    - Reads config.
+    - Calls the external API.
+    - Handles retries, rate limits, and parsing.
+•⁠  ⁠*Evaluation & bias*
+  - ⁠ evaluate.py ⁠ – loads data, runs model, computes metrics, saves reports.
+  - ⁠ bias_analysis.py ⁠ – takes predictions + sensitive attributes, computes slice metrics.
+•⁠  ⁠*Experiment runner*
+  - ⁠ run_experiments.py ⁠ – defines candidate configs and loops over them, logging to MLflow/W&B or CSV.
+•⁠  ⁠*Sensitivity analysis*
+  - ⁠ sensitivity_analysis.py ⁠ – runs feature & hyperparameter perturbation experiments and makes plots.
+•⁠  ⁠*CI/CD & packaging*
+  - ⁠ Dockerfile ⁠ – container with all the above code.
+  - ⁠ .github/workflows/model-ci.yml ⁠ (or Cloud Build config) – pipeline definition.
+
+You do *not* need to actually implement weight training; just make sure all the surrounding pieces (evaluation, bias, tracking, CI/CD, registry) are there and clearly documented.
+
+---
+
+### 9. Suggested immediate next steps
+
+1.⁠ ⁠*Decide*: which external model and provider you’ll use; define at least 2–3 candidate configs.
+2.⁠ ⁠*Design your prompts and config schema* (YAML/JSON) for the “model definition”.
+3.⁠ ⁠*Implement evaluation & bias scripts* that load your pipeline’s data and call the API.
+4.⁠ ⁠*Add basic experiment tracking* (MLflow/W&B or simple logs + plots).
+5.⁠ ⁠*Create CI config + Dockerfile* to automate running evaluation + bias checks and publishing the artifact.
+
+If you tell me:
+•⁠  ⁠Which provider/model you plan to use, and  
+•⁠  ⁠What your dataset/task look like (classification? extraction?),
+
+I can sketch concrete code skeletons for the evaluation, bias analysis, and CI/CD pieces tailored to your project.

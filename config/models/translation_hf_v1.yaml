@@ -1,0 +1,28 @@
+id: translation_hf_v1
+provider: huggingface
+model_name: Helsinki-NLP/opus-mt-en-es
+task_type: translation
+
+# Prompt template and generation behaviour
+prompt_template_id: translation_baseline
+temperature: 0.0
+top_p: 1.0
+max_output_tokens: 256
+
+# Input / output schema for the translation task
+input_fields:
+  - source_text
+  - source_language
+  - target_language
+
+output_schema:
+  type: text
+  field_name: translated_text
+
+parsing:
+  type: plain_text
+
+postprocessing:
+  normalize_whitespace: true
+  apply_legal_glossary_check: true
+
