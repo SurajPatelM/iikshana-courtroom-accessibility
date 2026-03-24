@@ -25,20 +25,20 @@ import json
 import sys
 from pathlib import Path
 
-SEARCH_RESULTS_CANDIDATES = [
-    # model-pipeline output
-    Path("data/model_runs/dev/config_search_results.json"),
-    Path("data/model_runs/test/config_search_results.json"),
-    # legacy / data-pipeline output
-    Path("data/processed/dev/config_search_results.json"),
-    Path("data/processed/test/config_search_results.json"),
+SEARCH_DIRS = [
+    Path("data/model_runs/dev"),
+    Path("data/model_runs/test"),
+    Path("data/processed/dev"),
+    Path("data/processed/test"),
 ]
 
 
 def find_results_file() -> Path | None:
-    for p in SEARCH_RESULTS_CANDIDATES:
-        if p.exists():
-            return p
+    for d in SEARCH_DIRS:
+        if d.is_dir():
+            matches = sorted(d.glob("config_search_results*.json"))
+            if matches:
+                return matches[0]
     return None
 
 
@@ -102,7 +102,7 @@ def main() -> None:
 
     if results_path is None or not results_path.exists():
         print("❌ No config search results found. Failing gate because config search must run in CI.")
-        print(f"   Searched: {[str(p) for p in SEARCH_RESULTS_CANDIDATES]}")
+        print(f"   Searched for config_search_results*.json in: {[str(d) for d in SEARCH_DIRS]}")
         sys.exit(1)
 
     passed = run_gate(results_path)
