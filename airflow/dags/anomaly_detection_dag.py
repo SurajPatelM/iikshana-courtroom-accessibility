@@ -14,6 +14,8 @@ _DAG_DIR = Path(__file__).resolve().parent
 PIPELINE_ROOT = _DAG_DIR.parent
 if str(PIPELINE_ROOT) not in sys.path:
     sys.path.insert(0, str(PIPELINE_ROOT))
+if str(_DAG_DIR) not in sys.path:
+    sys.path.insert(0, str(_DAG_DIR))
 
 from callbacks import slack_alert_on_failure
 
