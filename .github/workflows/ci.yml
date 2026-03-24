@@ -180,11 +180,19 @@ jobs:
           python -m pip install --upgrade pip
           pip install pandas pyyaml requests tqdm sacrebleu fairlearn mlflow scikit-learn matplotlib google-genai
 
+      - name: Generate evaluation inputs from court phrases
+        run: |
+          python model-pipeline/scripts/build_translation_inputs_from_court_phrases.py \
+            --split dev
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+
       - name: Run validation
         run: |
           python model-pipeline/scripts/run_validation.py \
             --split dev \
             --config-id translation_flash_v1 \
+            --inputs-basename court_translation_inputs \
             --max-rows 20 \
             --delay 0.2
         env:
@@ -196,6 +204,7 @@ jobs:
           python model-pipeline/scripts/run_model_bias_detection.py \
             --split dev \
             --config-id translation_flash_v1 \
+            --inputs-basename court_translation_inputs \
             --group-cols dataset,emotion \
             --max-rows 20 \
             --delay 0.2
@@ -208,6 +217,7 @@ jobs:
           python model-pipeline/scripts/run_config_search.py \
             --split dev \
             --configs translation_flash_v1,translation_flash_glossary \
+            --inputs-basename court_translation_inputs \
             --max-rows 20 \
             --delay 0.2 \
             --metric bleu
@@ -221,6 +231,7 @@ jobs:
         with:
           name: model-evaluation-artifacts
           path: |
+            data/model_runs/**/court_translation_inputs.csv
             data/model_runs/**/validation_metrics.json
             data/model_runs/**/validation_metrics.csv
             data/model_runs/**/validation_metrics_bar.png
