@@ -1,256 +1,267 @@
-# Model Pipeline (Clean Runbook)
+# Model Pipeline
 
-This folder contains the model-development flow.
-It runs on top of `data/processed/<split>/` produced by the data pipeline.
+This directory is the **model-development** layer: translation and evaluation on top of **`data/processed/<split>/`** (manifests, WAVs, etc.) produced by the data pipeline.
 
-Core idea: we do **not** train external API model weights. We tune and evaluate
-**model configuration** (provider/model + prompts + decoding params), then
-package that configuration and push it to registry.
+**What we optimize:** we do **not** train neural weights. The “model” is a **fixed API** (e.g. Groq `llama-3.1-8b-instant`) plus **YAML configuration** (prompts, `temperature`, `top_p`, `max_output_tokens`) and optional Speech-to-Text for audio-derived sources. Work is **config-driven**: `config/models/*.yaml` + `prompts/*.txt` + `backend/src/services/gemini_translation.py` (`translate_text` routes to Groq, Hugging Face, etc. per config).
 
----
-
-## Current Status 
-
-- The model pipeline covers end-to-end on top of `data/processed/<split>/`.
-- The flow is **config-driven** (YAML + prompts), not hardcoded.
-- It runs translation experiments, ranks configs, validates a selected config, performs fairness slicing, and packages selected configs for registry.
-
-### End-to-end flow currently in use
-
-1. **1 Input prep**
-   - Build eval tables from audio/manifests (`translation_inputs`), court phrases (`court_translation_inputs`), and optional merged tables (`combined_translation_inputs`).
-2. **2 Config search**
-   - Run multiple configs from `config/models/*.yaml`.
-   - Compare BLEU/chrF (+ glossary when available).
-   - Save ranked results and pick a best config.
-3. **3 Validation**
-   - Run selected config on split.
-   - Compute BLEU, chrF, exact-match (+ optional glossary).
-   - Save JSON/CSV and plots under `data/model_runs/<split>/` by default (legacy single root: `data/processed/<split>/`).
-4. **Fairness slices**
-   - **`run_translation_bias_analysis.py`:** per-group exact-match via Fairlearn; writes `translation_bias_metrics_<config>.json`.
-   - **`run_model_bias_detection.py`:** slice metrics, disparity flags vs threshold, mitigation text; writes `model_bias_report_<config>__<group_suffix>.json` (+ optional dataset bar chart). See **Modeling bias detection** below.
-5. **Registry packaging**
-   - Build model package tarball (manifest + config + prompts).
-   - Push to GCP Artifact Registry (generic repo).
-
-### Primary scripts used
-
-- `build_translation_inputs_from_audio.py`
-- `build_translation_inputs_from_court_phrases.py`
-- `build_combined_translation_inputs.py`
-- `run_config_search.py`
-- `run_validation.py`
-- `run_translation_bias_analysis.py`
-- `run_model_bias_detection.py`
-- `model_setup.py` (writes `translation_predictions_<config>.csv` for bias-from-predictions flows)
-- `build_model_package.py`
-- `push_model_to_registry.py`
-
-### Main output artifacts
-
-- `config_search_results*.json` (ranking + winner)
-- `validation_metrics.json` / `validation_metrics.csv` (+ plots) under `data/model_runs/<split>/` by default
-- `translation_bias_metrics_<config>.json`
-- `model_bias_report_<config>__<group_suffix>.json` (+ optional `model_bias_by_dataset_<config>__<group_suffix>.png`)
-- `model-pipeline/artifacts/*.tar.gz` and corresponding Artifact Registry package entries 
-
-### Airflow status
-
-- `full_pipeline_dag` can run data stages followed by model stages.
-- CLI remains the fastest path for local iteration/debugging.
-
-**End-to-end run (example):** Airflow Graph view for `full_pipeline_dag` with all tasks succeeded — from `dvc_pull` through triggered substages, `dvc_push`, `build_translation_inputs_from_audio`, `run_config_search`, and `mode_setup`:
-
-![Apache Airflow: full_pipeline_dag — all tasks succeeded](images/full_pipeline_airflow_dag.png)
+**Where outputs go:** by default, pipeline inputs are read from **`data/processed/`** and model artifacts from **`data/model_runs/<split>/`**. Scripts resolve CSV/JSON in **model_runs first**, then **processed** (see `model_pipeline_paths.py`). Legacy **`--data-dir`** sets one root for both. Optional env: **`PIPELINE_DATA_DIR`**, **`MODEL_OUTPUT_ROOT`**.
 
 ---
 
-## Scope 
+## 1. Overview
 
-- Build/prepare evaluation inputs (`translation_inputs`, `court_translation_inputs`, `combined_translation_inputs`) from pipeline outputs and courtroom phrases.
-- Run prompt/config search and rank candidate configs by BLEU/chrF (+ optional glossary checks).
-- Validate selected configs and save metrics report files (JSON/CSV + plots).
-- Package selected model configs (manifest + prompts + config YAML) and push to GCP Artifact Registry.
-- Added **modeling-side translation bias detection** (separate from `data-pipeline/scripts/detect_bias.py`):
-  - `model-pipeline/scripts/run_model_bias_detection.py`
-  - `model-pipeline/scripts/model_bias_detection_core.py`
-  - API mode on `translation_inputs` or no-extra-call mode from `translation_predictions_<config>` via `--from-predictions`
-  - Per-slice metrics (exact match, mean sentence BLEU when available), disparity flags, mitigation text
-  - Default read/write under `data/model_runs/<split>/` with fallback to `data/processed/<split>/`
-  - JSON report + optional dataset bar chart; output filenames include a sanitized suffix derived from `--group-cols` (e.g. `__dataset_emotion`).
-  - Full usage: see **Modeling bias detection** in this README.
-  - Tests: `model-pipeline/tests/test_model_bias_detection_core.py`, `model-pipeline/tests/test_run_model_bias_detection_cli.py`
-- Related: `run_translation_bias_analysis.py` remains available as the earlier per-group fairness script and now follows the same model-runs vs processed path behavior.
-  
+| Component                                        | Role                                                                                                                                                                                         |
+| ------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **`config/models/*.yaml`**                       | `id`, `provider` (e.g. `groq`), `model_name`, `system_prompt_id` / `prompt_template_id`, decoding params.                                                                                    |
+| **`prompts/*.txt`**                              | Prompt bodies; placeholders filled by `translate_text`.                                                                                                                                      |
+| **`backend/src/services/gemini_translation.py`** | Loads YAML + prompts; **`translate_text(...)`** calls the provider. Optional kwargs **`temperature`**, **`top_p`**, **`max_output_tokens`** override YAML for sweeps (sensitivity analysis). |
+| **`backend/src/services/groq_stt_service.py`**   | Groq Whisper STT for **`build_translation_inputs_from_audio.py`** (`GROQ_API_KEY`).                                                                                                          |
+| **`model-pipeline/scripts/*.py`**                | Build eval tables, search configs, validate, sensitivity, bias, package, push.                                                                                                               |
+
+**Typical default config:** `translation_flash_v1` (Groq + baseline prompts; see `config/models/translation_flash_v1.yaml`).
 
 ---
 
-## Quick flow (PowerShell)
+## 2. Model development and ML code
 
-From repo root:
+### 2.1 Building evaluation tables
 
-```powershell
-$env:PYTHONPATH = "."
-```
+| Script                                               | What it does                                                                                                                                                                                                                                            | Output (default location)                                                                                                                                                            |
+| ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **`build_translation_inputs_from_audio.py`**         | Reads **`manifest.json`** + WAVs under `data/processed/<split>/`. Runs **Groq Whisper** STT (`--stt-model`, default `whisper-large-v3-turbo`). Maps **RAVDESS** files to scripted English + Spanish references. Falls back to gold script if STT fails. | **`translation_inputs.csv`** under `data/model_runs/<split>/` (columns include `source_text`, languages, `reference_translation`, often `file`, `dataset`, `speaker_id`, `emotion`). |
+| **`build_translation_inputs_from_court_phrases.py`** | Reads **`data/court_phrases.csv`**                                                                                                                                                                                                                      | **`court_translation_inputs.csv`**                                                                                                                                                   |
+| **`build_combined_translation_inputs.py`**           | Merges audio + court tables (optional)                                                                                                                                                                                                                  | **`combined_translation_inputs.csv`** (or similar basename)                                                                                                                          |
 
-### Step 1 - Prepare eval inputs 
+**Requirements:** **`GROQ_API_KEY`** for STT and for Groq-backed translation configs. Rate limits (HTTP 429) are possible—increase **`--delay`** between STT calls or reduce **`--max-rows`**.
 
-```powershell
-# Audio-derived table
-python model-pipeline/scripts/build_translation_inputs_from_audio.py --split dev
+### 2.2 Core scripts (what each step produces)
 
-# Court-phrases table
-python model-pipeline/scripts/build_translation_inputs_from_court_phrases.py --split dev
+| Script                                                         | Purpose                                                                                                                                                             | Key artifacts                                                                        |
+| -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| **`run_config_search.py`**                                     | Compare many **`config_id`** values on the **same** eval CSV; metric **BLEU** or **chrF**; optional glossary enforcement vs `data/legal_glossary/legal_terms.json`. | **`config_search_results.json`** — list of per-config scores + **`best_config_id`**. |
+| **`run_validation.py`**                                        | Run one or more configs; corpus metrics, plots; **MLflow** logging (§4).                                                                                            | **`validation_metrics.json`** / CSV, plots, optional MLflow run.                     |
+| **`model_setup.py`**                                           | Full translation pass for a chosen **`--config-id`** (e.g. best from search); supports STT path when using manifest + WAVs.                                         | **`translation_predictions_<config_id>.csv`** (predictions for bias / reporting).    |
+| **`run_sensitivity_analysis.py`**                              | Sensitivity of metrics to **decoding knobs** and **input strata** (§5).                                                                                             | **`sensitivity_analysis.json`**                                                      |
+| **`run_translation_bias_analysis.py`**                         | Fairlearn **group** metrics (exact match, etc.).                                                                                                                    | **`translation_bias_metrics_<config>.json`**                                         |
+| **`run_model_bias_detection.py`**                              | **Sliced** metrics, disparity vs threshold, mitigation narrative.                                                                                                   | **`model_bias_report_<config>__<group_suffix>.json`** (+ optional PNG).              |
+| **`build_model_package.py`** / **`push_model_to_registry.py`** | Tarball (config + prompts + manifest) and **GCP Artifact Registry** upload.                                                                                         | `model-pipeline/artifacts/*.tar.gz`, registry package version.                       |
 
-# Optional merged table
-python model-pipeline/scripts/build_combined_translation_inputs.py --split dev
-```
+### 2.3 Tests
 
-### Step 2 - Config search 
+- **`model-pipeline/tests/test_model_bias_detection_core.py`**, **`test_run_model_bias_detection_cli.py`** — bias pipeline logic and CLI.
 
-```powershell
-python model-pipeline/scripts/run_config_search.py --split dev --inputs-basename translation_inputs
-```
+---
 
-Optional:
+## 3. Hyperparameter tuning
 
-```powershell
-python model-pipeline/scripts/run_config_search.py --split dev --inputs-basename court_translation_inputs
-```
+**Meaning here:** choosing among **discrete YAML configs** and decoding parameters, not backprop. Each file under **`config/models/`** is a candidate (e.g. `translation_flash_v1`, `translation_flash_glossary`, `translation_flash_court`, `translation_flash_short_prompt`, `translation_flash_temp03`).
 
-### Step 3 - Validation report 
+**Tool:** **`run_config_search.py`**
 
-```powershell
-python model-pipeline/scripts/run_validation.py --split dev --config-id translation_flash_v1 --task translation
-```
+- **`--configs`** — comma-separated `config_id` list, or logic to load all YAMLs (see script `--help`).
+- **`--metric`** — `bleu` or `chrf`.
+- **`--inputs-basename`** — e.g. `translation_inputs`, `court_translation_inputs` (must exist under model_runs or processed for that split).
+- **`--max-rows`**, **`--delay`** — cap cost and ease rate limits.
 
-### Step 4 - Fairness slices 
+**Output:** **`config_search_results.json`** (under `data/model_runs/<split>/` by default) includes **`best_config_id`**. Downstream:
 
-```powershell
-python model-pipeline/scripts/run_translation_bias_analysis.py --split dev --config-id translation_flash_v1 --group-cols emotion,speaker_id
-```
+- **`model_setup.py --config-id <best_config_id>`** for a full prediction CSV.
+- **`run_validation.py --config-id ...`**, **`run_model_bias_detection.py --config-id ...`** for reports on that config.
 
-Modeling bias (disparities + mitigation report; often run after `model_setup.py` so you can use `--from-predictions`):
+**Apache Airflow (`full_pipeline_dag`):** after **`dvc_push`**, the DAG runs **`run_config_search`** with a fixed list of config IDs (see `airflow/dags/full_pipeline_dag.py`), then **`mode_setup`** (`model_setup.py`) with **`best_config_id`** read from **`data/processed/<split>/config_search_results.json`** (Airflow writes search results under **processed** for that task; local CLI often uses **model_runs**—keep paths consistent for your environment).
 
-```powershell
-python model-pipeline/scripts/run_model_bias_detection.py --split dev --config-id translation_flash_v1 --from-predictions --group-cols dataset,emotion
-```
+```bash
+export PYTHONPATH=.
+export GROQ_API_KEY=...   # required for Groq configs
 
-### Step 5 - Package + registry 
-
-```powershell
-python model-pipeline/scripts/build_model_package.py --config-id translation_flash_v1 --tarball
-```
-
-Then upload tarball to Artifact Registry (generic repo):
-
-```powershell
-gcloud artifacts generic upload --repository=model-packages --location=us-central1 --project=YOUR_PROJECT_ID --source="PATH_TO_TARBALL" --package=api-model-translation_flash_v1 --version=YOUR_VERSION
+python model-pipeline/scripts/run_config_search.py --split dev \
+  --inputs-basename court_translation_inputs \
+  --configs translation_flash_v1,translation_flash_glossary \
+  --metric bleu --delay 0.5
 ```
 
 ---
 
-## Modeling bias detection (`run_model_bias_detection.py`)
+## 4. Experiment tracking and results
 
-**Scope:** Translation **model/API** fairness — metrics and disparities **per slice** (e.g. `dataset`, `emotion`, `speaker_id`, language codes). Separate from **data-pipeline** representation bias (`data-pipeline/scripts/detect_bias.py`).
+### 4.1 MLflow (`run_validation.py`)
 
-### Prerequisites
+When validation runs, it can log to **MLflow**:
 
-- Repo root on `PYTHONPATH` (examples below use `$env:PYTHONPATH = "."` from repo root).
-- Eval table (`translation_inputs`) or predictions file (`translation_predictions_<config_id>.csv`) resolved under **`data/model_runs/<split>/` first**, then `data/processed/<split>/` (legacy `--data-dir` uses one root for both).
-- `fairlearn` (root `requirements.txt`). Mean sentence BLEU in the report needs `sacrebleu` when available.
+- **Experiment name:** `iikshana-translation`
+- **Tracking URI:** env **`MLFLOW_TRACKING_URI`**, or default **`file:./mlruns`** (local store under repo root)
+- **Run name pattern:** `{config_id}_{split}_{inputs_basename}`
+- **Logged:** params (`config_id`, `split`, `inputs_basename`, `n_samples`, …), metrics (BLEU, chrF, exact match, …), and **artifacts** (e.g. metric plots) when files exist
 
-### Required columns
+Use the MLflow UI against your tracking URI to compare runs over time.
 
-| Column | Role |
-|--------|------|
-| `source_text` | Source utterance |
-| `source_language` | Source language code |
-| `target_language` | Target language code |
-| `reference_translation` | Gold translation for metrics |
+### 4.2 Files on disk (usual layout: `data/model_runs/<split>/`)
 
-**API mode** (default): reads `translation_inputs` (basename configurable via `--inputs-basename`); calls `translate_text` per row.
+| Artifact                                   | Source                        |
+| ------------------------------------------ | ----------------------------- |
+| `validation_metrics.json` / `.csv` + plots | `run_validation.py`           |
+| `config_search_results*.json`              | `run_config_search.py`        |
+| `translation_predictions_<config_id>.csv`  | `model_setup.py`              |
+| `sensitivity_analysis.json`                | `run_sensitivity_analysis.py` |
 
-**Predictions mode** (`--from-predictions`): reads `translation_predictions_<config_id>.csv` (or `--predictions-path`) from `model_setup.py`; must include `reference_translation` and `translated_text_model` (override with `--pred-col` / `--ref-col` if needed).
+---
 
-**Slice columns** (`--group-cols`, default `dataset,emotion`) must exist on the table (e.g. from `build_translation_inputs_from_audio.py`).
+## 5. Model sensitivity analysis
 
-### Outputs
+**Purpose:** quantify how **translation quality** (corpus **BLEU** or **chrF**) responds to **changes in decoding hyperparameters** and **input characteristics**, without training weights. This complements hyperparameter search: search picks a winner; sensitivity explains **how** metrics move when one knob or one input slice changes.
 
-Written to **`data/model_runs/<split>/`** by default:
+**Script:** **`run_sensitivity_analysis.py`**
 
-| File | Description |
-|------|-------------|
-| `model_bias_report_<config_id>__<group_suffix>.json` | Overall exact-match, Fairlearn overall + `by_group`, disparities vs `--disparity-threshold`, mitigation strings |
-| `model_bias_by_dataset_<config_id>__<group_suffix>.png` | Bar chart of mean exact-match by `dataset` (only if `dataset` is in `--group-cols` and plotting succeeds) |
+**Requires:** optional **`translate_text`** overrides in **`gemini_translation.py`** (`temperature`, `top_p`, `max_output_tokens`) so sweeps do not need one YAML per value.
 
-The `<group_suffix>` is derived from the final `--group-cols` list so different slice runs with the same `--config-id` do not overwrite each other.
+**Sections in `sensitivity_analysis.json`:**
 
-### Examples (PowerShell, repo root)
+| Section                           | Meaning                                                                                                                                                                                                                            |
+| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **`meta`**                        | Split, `config_id`, metric, row count, path to eval CSV, short description.                                                                                                                                                        |
+| **`hyperparameter_oat`**          | **One-at-a-time** sweeps: default lists for `temperature`, `top_p`, `max_output_tokens` (each setting runs a full pass over the eval table).                                                                                       |
+| **`stochastic_decoding`**         | For **`temperature > 0`**, repeated full runs (**mean ± std** of corpus metric). Omit or skip with flags if too expensive.                                                                                                         |
+| **`input_stratification`**        | One **baseline** translate pass, then **mean segment-level** metric by **source length quartiles**, **glossary term in reference** (if `legal_terms.json` loaded), **emotion** (column or joined from `manifest.json` via `file`). |
+| **`stt_vs_gold_script`**          | For **RAVDESS** rows with `file`, compares translating **STT `source_text`** vs **gold English script** (same references).                                                                                                         |
+| **`leave_one_word_out_ablation`** | Optional; remove words one-by-one and measure **Δ segment metric** (many API calls).                                                                                                                                               |
 
-```powershell
-$env:PYTHONPATH = "."
+**Operational notes:**
 
-# Live API on translation_inputs
-python model-pipeline/scripts/run_model_bias_detection.py `
-  --split dev `
-  --config-id translation_flash_v1 `
-  --group-cols dataset,emotion `
-  --max-rows 20
+- Full defaults are **API-heavy** (hundreds of calls). Use **`--max-rows`**, **`--delay`**, **`--skip-hyperparam`**, **`--skip-stochastic`**, **`--skip-stratification`**, **`--skip-stt-vs-script`**, and tighter **`--temperatures` / `--top-ps` / `--max-output-tokens`** lists for smoke runs.
+- **Not** currently a task in **`full_pipeline_dag`** — run **manually** or add a BashOperator if you want it scheduled.
 
-# Reuse predictions only (no extra Gemini calls for bias)
-python model-pipeline/scripts/run_model_bias_detection.py `
-  --split dev `
-  --config-id translation_flash_v1 `
-  --from-predictions `
-  --group-cols dataset,emotion
+```bash
+export PYTHONPATH=.
+export GROQ_API_KEY=...
+
+python model-pipeline/scripts/run_sensitivity_analysis.py --split dev \
+  --inputs-basename court_translation_inputs \
+  --max-rows 25 --delay 0.5
 ```
 
-### Other slices (reuse predictions)
-
-Change only `--group-cols`:
-
-```powershell
-# Emotion
-python model-pipeline/scripts/run_model_bias_detection.py --split dev --config-id translation_flash_v1 --from-predictions --group-cols emotion
-
-# Language pairs (meaningful only if multiple values appear in the table)
-python model-pipeline/scripts/run_model_bias_detection.py --split dev --config-id translation_flash_v1 --from-predictions --group-cols source_language,target_language
-
-# Speaker proxy
-python model-pipeline/scripts/run_model_bias_detection.py --split dev --config-id translation_flash_v1 --from-predictions --group-cols speaker_id
-
-# Corpus only
-python model-pipeline/scripts/run_model_bias_detection.py --split dev --config-id translation_flash_v1 --from-predictions --group-cols dataset
+```bash
+python model-pipeline/scripts/run_sensitivity_analysis.py --help
 ```
 
-### Reusing one predictions file under different report names
+---
 
-You can pass a unique `--config-id` together with `--predictions-path` pointing at the same CSV if you want separate report names without changing slice columns:
+## 6. Model bias detection (slicing techniques)
 
-```powershell
-python model-pipeline/scripts/run_model_bias_detection.py `
-  --split dev `
-  --config-id translation_flash_v1_bias_emotion `
-  --from-predictions `
-  --predictions-path data/model_runs/dev/translation_predictions_translation_flash_v1.csv `
+Translation **model** fairness is measured on **slices** of the evaluation table (e.g. by **`dataset`**, **`emotion`**, **`speaker_id`**). This is **not** the same as the data-pipeline script **`data-pipeline/scripts/detect_bias.py`** (representation / dataset bias).
+
+| Tool                                   | Role                                                                                                                                                                                                                                                                                           |
+| -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **`run_translation_bias_analysis.py`** | Fairlearn-oriented **group** analysis; **exact match** and related views; writes **`translation_bias_metrics_<config>.json`**.                                                                                                                                                                 |
+| **`run_model_bias_detection.py`**      | **Sliced** metrics (exact match, mean sentence BLEU when **`sacrebleu`** is installed), **disparity** vs **`--disparity-threshold`**, mitigation text; outputs **`model_bias_report_<config_id>__<group_suffix>.json`** and optional **`model_bias_by_dataset_<config>__<group_suffix>.png`**. |
+
+**Modes**
+
+- **API (default):** calls **`translate_text`** per row for the chosen **`--config-id`** (or `--inputs-basename` table).
+- **`--from-predictions`:** reads **`translation_predictions_<config_id>.csv`** produced by **`model_setup.py`** — **no extra** translation API calls for bias.
+
+**Slicing:** **`--group-cols`** (default `dataset,emotion`). Those columns must exist on the table (e.g. from **`build_translation_inputs_from_audio.py`**). The **`__<group_suffix>`** in filenames avoids overwriting when you change slice dimensions.
+
+```bash
+export PYTHONPATH=.
+export GROQ_API_KEY=...
+
+python model-pipeline/scripts/run_model_bias_detection.py --split dev \
+  --config-id translation_flash_v1 \
+  --group-cols dataset,emotion \
+  --max-rows 50
+
+python model-pipeline/scripts/run_model_bias_detection.py --split dev \
+  --config-id translation_flash_v1 \
+  --from-predictions \
   --group-cols emotion
 ```
 
-### Implementation
-
-- `scripts/model_bias_detection_core.py` — Fairlearn metrics, disparities, plot helpers.
-- `scripts/run_model_bias_detection.py` — CLI entry.
-
-Tests: `tests/test_model_bias_detection_core.py`, `tests/test_run_model_bias_detection_cli.py`.
+**Implementation:** `model_bias_detection_core.py` + `run_model_bias_detection.py`.
 
 ---
 
-## Minimal outputs to share with team
+## 7. CI/CD pipeline automation (model development)
 
-- `config_search_results*.json` 
-- `validation_metrics.json` / `validation_metrics.csv` 
-- `translation_bias_metrics_<config>.json`
-- `model_bias_report_<config>__<group_suffix>.json` (modeling bias / disparities)
-- Artifact Registry package entries for selected configs 
+Workflow: **`.github/workflows/ci.yml`**.
+
+1. **`detect-model-changes`** — path filter on `model-pipeline/**`, `config/models/**`, selected `backend/src/services/*`, etc.
+2. **`model-evaluation` job** (runs when model-related paths change) — installs Python deps (`pandas`, `sacrebleu`, `fairlearn`, …), runs **`build_translation_inputs_from_court_phrases.py`**, then **`run_validation.py`**, **`run_model_bias_detection.py`**, **`run_config_search.py`** with **`GROQ_API_KEY`** from **GitHub Actions secrets**; uploads **`data/model_runs`** as an artifact.
+3. **`mlops-quality-gate`** — downloads artifacts, runs repo-root **`scripts/quality_gate.py`**, **`scripts/bias_gate.py`**, **`scripts/config_search_gate.py`** against thresholds.
+4. **Registry / deployment jobs** (on **`main`**, when model changes and gates pass) — e.g. **`build_model_package.py`** + **`push_model_to_registry.py`** toward **GCP Artifact Registry** (requires GCP auth secrets in CI).
+
+PRs that **do not** touch model paths skip the heavy **model-evaluation** path; other jobs (data pipeline, backend, frontend tests) still run per workflow.
+
+**Secrets:** configure **`GROQ_API_KEY`** in the repo/org secrets for CI. Do **not** commit **`.env`** or keys.
+
+---
+
+## 8. Airflow and the full pipeline
+
+**DAG:** **`full_pipeline_dag`** (`airflow/dags/full_pipeline_dag.py`)
+
+**Order (simplified):** `dvc_pull` (optional) → **data acquisition** → **preprocessing** → **validation** → **anomaly** → **bias detection** → **gemini verification** → `dvc_push` (optional) → **`build_translation_inputs_from_audio`** → **`run_config_search`** → **`mode_setup`** (`model_setup.py` with **`best_config_id`**).
+
+**DAG params:** e.g. **`split`** (default `dev`), **`config_id`** fallback if search JSON is missing.
+
+**Skip behavior:** tasks may skip if outputs already exist (e.g. `translation_inputs.csv`, `config_search_results.json`) — see bash snippets in the DAG.
+
+**Docker:** Airflow mounts the repo at **`/workspace`**; **`PYTHONPATH=/workspace`**.
+
+**Note:** **Sensitivity analysis** and **court-phrase-only** eval are **CLI** workflows unless you add tasks to a DAG.
+
+![Apache Airflow: full_pipeline_dag — example all tasks succeeded](images/full_pipeline_airflow_dag.png)
+
+---
+
+## 9. Quick reference (local CLI)
+
+**Environment**
+
+```bash
+cd /path/to/iikshana-courtroom-accessibility
+source .venv/bin/activate          # if you use a venv
+export PYTHONPATH=.
+export GROQ_API_KEY=...            # or: set -a && source .env && set +a
+```
+
+**PowerShell:** `$env:PYTHONPATH = "."`; `$env:GROQ_API_KEY = "..."`
+
+**End-to-end-style sequence (local)**
+
+```bash
+# 1) Eval tables
+python model-pipeline/scripts/build_translation_inputs_from_court_phrases.py --split dev
+# optional: build_translation_inputs_from_audio.py --split dev --max-rows 30 --delay 1.0
+
+# 2) Hyperparameter / config search
+python model-pipeline/scripts/run_config_search.py --split dev \
+  --inputs-basename court_translation_inputs --metric bleu --delay 0.2
+
+# 3) Validation + MLflow
+python model-pipeline/scripts/run_validation.py --split dev \
+  --config-id translation_flash_v1 --task translation
+
+# 4) Full predictions (e.g. best config from JSON)
+python model-pipeline/scripts/model_setup.py --split dev --config-id translation_flash_v1
+
+# 5) Sensitivity (optional; heavy)
+python model-pipeline/scripts/run_sensitivity_analysis.py --split dev \
+  --inputs-basename court_translation_inputs --max-rows 15 --delay 0.5
+
+# 6) Bias slicing
+python model-pipeline/scripts/run_model_bias_detection.py --split dev \
+  --config-id translation_flash_v1 --from-predictions --group-cols dataset,emotion
+
+# 7) Package
+python model-pipeline/scripts/build_model_package.py --config-id translation_flash_v1 --tarball
+```
+
+---
+
+## 10. What to deliver / share
+
+- **`config_search_results*.json`** (winner + scores)
+- **`validation_metrics.json`** / CSV + plots; **MLflow** runs under **`mlruns`** or remote URI
+- **`sensitivity_analysis.json`** (if sensitivity study is part of the milestone)
+- **`translation_bias_metrics_*.json`** / **`model_bias_report_*__*.json`**
+- **Model tarball** / **Artifact Registry** version for the promoted **`config_id`**
