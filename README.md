@@ -316,7 +316,7 @@ automatically logged as a separate MLflow run under the experiment
 |            | `segment_hist`             | Per-segment score histogram             |
 |            | `confusion_plot`           | Confusion matrix plot                   |
 
-![MLflow Dashboard](mlruns/screenshot/mlflow.png)
+![MLflow Dashboard](docs/mlflow.png)
 
 #### Tracking URI
 
