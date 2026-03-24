@@ -260,6 +260,13 @@ jobs:
         with:
           python-version: "3.10"
 
+      - name: Download model evaluation artifacts
+        if: ${{ needs.detect-model-changes.outputs.model_changed == 'true' }}
+        uses: actions/download-artifact@v4
+        with:
+          name: model-evaluation-artifacts
+          path: .
+
       - name: Run quality gate (BLEU / chrF / exact match)
         if: ${{ needs.detect-model-changes.outputs.model_changed == 'true' }}
         run: python scripts/quality_gate.py
@@ -288,6 +295,13 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Download model evaluation artifacts
+        if: ${{ needs.detect-model-changes.outputs.model_changed == 'true' }}
+        uses: actions/download-artifact@v4
+        with:
+          name: model-evaluation-artifacts
+          path: .
 
       - name: Run rollback check
         if: ${{ needs.detect-model-changes.outputs.model_changed == 'true' }}
