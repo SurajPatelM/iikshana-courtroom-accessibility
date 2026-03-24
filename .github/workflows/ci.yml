@@ -230,16 +230,7 @@ jobs:
         if: always()
         with:
           name: model-evaluation-artifacts
-          path: |
-            data/model_runs/**/court_translation_inputs.csv
-            data/model_runs/**/validation_metrics.json
-            data/model_runs/**/validation_metrics.csv
-            data/model_runs/**/validation_metrics_bar.png
-            data/model_runs/**/validation_segment_bleu_hist.png
-            data/model_runs/**/validation_confusion_matrix.png
-            data/model_runs/**/model_bias_report_*.json
-            data/model_runs/**/model_bias_by_dataset_*.png
-            data/model_runs/**/config_search_results*.json
+          path: data/model_runs
           if-no-files-found: warn
 
   # -------------------------------------------------------
@@ -265,7 +256,11 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: model-evaluation-artifacts
-          path: .
+          path: data/model_runs
+
+      - name: List downloaded artifacts
+        if: ${{ needs.detect-model-changes.outputs.model_changed == 'true' }}
+        run: find data/model_runs -type f | head -30
 
       - name: Run quality gate (BLEU / chrF / exact match)
         if: ${{ needs.detect-model-changes.outputs.model_changed == 'true' }}
@@ -301,7 +296,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: model-evaluation-artifacts
-          path: .
+          path: data/model_runs
 
       - name: Run rollback check
         if: ${{ needs.detect-model-changes.outputs.model_changed == 'true' }}
