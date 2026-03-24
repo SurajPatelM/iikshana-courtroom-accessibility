@@ -224,3 +224,4 @@ model-pipeline/artifacts/
 mlruns/
 mlflow.db
 *.json
+!data/baseline_metrics.json

@@ -95,9 +95,9 @@ def main() -> None:
         metrics_path = find_metrics_file()
 
     if metrics_path is None or not metrics_path.exists():
-        print("⚠️  No metrics file found. Skipping quality gate (metrics not yet generated).")
+        print("❌ No metrics file found. Failing quality gate because metrics are required in CI.")
         print(f"   Searched: {[str(p) for p in METRICS_CANDIDATES]}")
-        sys.exit(0)
+        sys.exit(1)
 
     passed = run_gate(metrics_path)
     sys.exit(0 if passed else 1)

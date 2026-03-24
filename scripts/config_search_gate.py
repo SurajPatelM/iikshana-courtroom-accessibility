@@ -101,9 +101,9 @@ def main() -> None:
         results_path = find_results_file()
 
     if results_path is None or not results_path.exists():
-        print("⚠️  No config search results found. Skipping gate (run_config_search.py not yet run).")
+        print("❌ No config search results found. Failing gate because config search must run in CI.")
         print(f"   Searched: {[str(p) for p in SEARCH_RESULTS_CANDIDATES]}")
-        sys.exit(0)
+        sys.exit(1)
 
     passed = run_gate(results_path)
     sys.exit(0 if passed else 1)

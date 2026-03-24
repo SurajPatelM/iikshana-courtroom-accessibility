@@ -1,0 +1,9 @@
+{
+  "schema": "iikshana.baseline_metrics.v1",
+  "description": "Last known good model metrics used by rollback_check.py",
+  "metrics": {
+    "bleu": 40.0,
+    "chrf": 50.0,
+    "exact_match_accuracy": 0.1
+  }
+}

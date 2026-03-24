@@ -1,16 +1,16 @@
 name: Deploy Frontend
 
 on:
-  push:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
     branches: [main]
-    paths:
-      - "frontend/**"
-      - ".github/workflows/deploy-frontend.yml"
 
 jobs:
   deploy-frontend:
     name: Build & Deploy Frontend
     runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
 
     steps:
       - name: Checkout code
@@ -40,7 +40,7 @@ jobs:
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: frontend-build-${{ github.sha }}
+          name: frontend-build-${{ github.event.workflow_run.head_sha }}
           path: frontend/build
           retention-days: 7
 
@@ -48,6 +48,6 @@ jobs:
         run: |
           echo "=========================================="
           echo "Frontend built and deployed successfully"
-          echo "Build tag: ${{ github.sha }}"
-          echo "Commit: ${{ github.event.head_commit.message }}"
+          echo "Build tag: ${{ github.event.workflow_run.head_sha }}"
+          echo "Commit SHA: ${{ github.event.workflow_run.head_sha }}"
           echo "=========================================="

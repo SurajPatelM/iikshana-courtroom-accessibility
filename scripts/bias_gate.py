@@ -118,8 +118,8 @@ def main() -> None:
         report_path = find_bias_report()
 
     if report_path is None or not report_path.exists():
-        print("⚠️  No bias report found. Skipping bias gate (report not yet generated).")
-        sys.exit(0)
+        print("❌ No bias report found. Failing bias gate because report generation is required in CI.")
+        sys.exit(1)
 
     passed = run_gate(report_path)
     sys.exit(0 if passed else 1)
