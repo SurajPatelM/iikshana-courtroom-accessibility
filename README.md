@@ -129,6 +129,11 @@ iikshana-courtroom-accessibility/
 │   ├── deploy-backend.yml   # Backend Docker deploy (main only)
 │   ├── deploy-frontend.yml  # Frontend build deploy (main only)
 │   └── README.md            # CI/CD pipeline documentation
+├── scripts/                 # CI/CD quality gate scripts
+│   ├── quality_gate.py      # Enforces BLEU, chrF, exact match thresholds
+│   ├── bias_gate.py         # Enforces bias detection thresholds
+│   ├── config_search_gate.py # Validates config search results
+│   └── rollback_check.py    # Compares metrics against baseline to prevent regression
 ├── config/                  # Environment-specific app configuration
 │   ├── development.yaml
 │   ├── testing.yaml
@@ -207,7 +212,7 @@ python src/main.py
 
 By default this will expose a FastAPI app (and WebSocket endpoints) on `http://localhost:<port>` as configured in `src/main.py` and `config/*.yaml`.
 
-For backend internals and tests, see `backend/src/models/README.md` and `backend/tests/`.
+For backend internals (agents, services, Docker), see `backend/README.md`.
 
 ---
 
@@ -293,11 +298,21 @@ The pipeline can produce reports such as `data/processed/bias_report.json` with:
 - Fairlearn-based per-group metrics.
 - Detected disparities and mitigation recommendations.
 
-See `data-pipeline/README.md` for how to run:
+The **data pipeline** scripts for offline evaluation and bias detection live in `data-pipeline/scripts/`:
 
-- `scripts/detect_bias.py`
-- `scripts/evaluate_models.py`
-- `scripts/anomaly_check.py`
+- `data-pipeline/scripts/detect_bias.py`
+- `data-pipeline/scripts/anomaly_check.py`
+
+See `data-pipeline/README.md` for how to run these.
+
+The **CI/CD quality gate** scripts in the root `scripts/` folder enforce thresholds automatically during the pipeline:
+
+- `scripts/quality_gate.py` (translation metric thresholds)
+- `scripts/bias_gate.py` (bias detection thresholds)
+- `scripts/config_search_gate.py` (config search validation)
+- `scripts/rollback_check.py` (regression check against baseline)
+
+See `.github/workflows/README.md` for how these gates fit into the CI pipeline.
 
 ---
 
