@@ -124,6 +124,11 @@ iikshana-courtroom-accessibility/
 │   ├── user_manual.md
 │   ├── deployment_guide.md
 │   └── agent_specifications.md
+├── .github/workflows/       # CI/CD pipeline (GitHub Actions)
+│   ├── ci.yml               # Main CI workflow (tests, evaluation, gates)
+│   ├── deploy-backend.yml   # Backend Docker deploy (main only)
+│   ├── deploy-frontend.yml  # Frontend build deploy (main only)
+│   └── README.md            # CI/CD pipeline documentation
 ├── config/                  # Environment-specific app configuration
 │   ├── development.yaml
 │   ├── testing.yaml
@@ -293,6 +298,14 @@ See `data-pipeline/README.md` for how to run:
 - `scripts/detect_bias.py`
 - `scripts/evaluate_models.py`
 - `scripts/anomaly_check.py`
+
+---
+
+## CI/CD Pipeline
+
+The project uses GitHub Actions for continuous integration and deployment. The pipeline runs tests for all three layers (data pipeline, backend, frontend), evaluates the model when relevant files change, enforces quality gates on translation metrics and bias, and blocks deployment if anything regresses.
+
+For a full breakdown of every job, the required GitHub Secrets, and how the pipeline maps to the project requirements, see [`.github/workflows/README.md`](.github/workflows/README.md).
 
 ---
 
