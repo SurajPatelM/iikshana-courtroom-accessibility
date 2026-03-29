@@ -51,3 +51,8 @@ matplotlib>=3.7.0
 requests>=2.31.0
 tqdm>=4.66.0
 checksumdir>=1.2.0
+
+#for front-end
+streamlit
+streamlit-webrtc
+av
