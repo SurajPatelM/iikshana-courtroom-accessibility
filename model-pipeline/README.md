@@ -20,6 +20,8 @@ This directory is the **model-development** layer: translation and evaluation on
 
 **Typical default config:** `translation_flash_v1` (Groq + baseline prompts; see `config/models/translation_flash_v1.yaml`).
 
+**Live expo (Streamlit):** [`demo/streamlit_expo_app.py`](../demo/streamlit_expo_app.py) — ingests via **`process_one`**, then optionally **triggers Docker Airflow `model_pipeline_dag`** (`refresh_inputs`) so **build_translation_inputs → config search → mode_setup** run on the host-mounted repo. Runbook: [`demo/README.md`](../demo/README.md).
+
 ---
 
 ## 2. Model development and ML code

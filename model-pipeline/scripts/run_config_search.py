@@ -129,6 +129,19 @@ def _load_eval_data_from_path(
     return features, labels
 
 
+def _pairs_with_nonempty_reference(
+    references: List[str], hypotheses: List[str]
+) -> tuple[List[str], List[str]]:
+    """Segments with empty reference (e.g. EXPO UI recordings) are still translated but omitted from BLEU/chrF."""
+    r_out: List[str] = []
+    h_out: List[str] = []
+    for r, h in zip(references, hypotheses):
+        if str(r or "").strip():
+            r_out.append(str(r))
+            h_out.append(str(h or ""))
+    return r_out, h_out
+
+
 def _compute_bleu(references: List[str], hypotheses: List[str]) -> float:
     try:
         import sacrebleu
@@ -270,16 +283,18 @@ def main() -> None:
             preds = preds + [""] * (len(references) - len(preds))
         preds = preds[: len(references)]
 
+        ref_scored, pred_scored = _pairs_with_nonempty_reference(references, preds)
         if args.metric == "chrf":
-            score = _compute_chrf(references, preds)
+            score = _compute_chrf(ref_scored, pred_scored) if ref_scored else 0.0
         else:
-            score = _compute_bleu(references, preds)
+            score = _compute_bleu(ref_scored, pred_scored) if ref_scored else 0.0
 
         row: Dict[str, Any] = {
             "config_id": config_id,
             "metric": args.metric,
             "score": round(score, 4),
             "n_samples": n,
+            "n_scored_for_metric": len(ref_scored),
         }
         if glossary_terms:
             gloss = _compute_glossary_enforcement(references, preds, glossary_terms)

@@ -8,6 +8,7 @@ simple function for translating text between languages.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Optional
@@ -34,6 +35,32 @@ else:
     REPO_ROOT = _this_file.parents[3]
 CONFIG_DIR = REPO_ROOT / "config" / "models"
 PROMPTS_DIR = REPO_ROOT / "prompts"
+
+# Returned instead of calling the model when there is nothing to translate (always English for UX).
+EMPTY_TRANSCRIPTION_MESSAGE_EN = (
+    "[EMPTY_TRANSCRIPT] No speech text to translate. "
+    "STT returned nothing — check audio, mic level, and GROQ_API_KEY in this runtime (e.g. Airflow worker)."
+)
+
+
+def _normalize_translation_source(value: object) -> str:
+    """
+    CSV/parquet empty cells often become float NaN; ``str(NaN)`` is ``\"nan\"`` and would bypass empty checks.
+    """
+    if value is None:
+        return ""
+    if isinstance(value, float) and math.isnan(value):
+        return ""
+    s = str(value).strip()
+    if s.lower() in ("nan", "none", "<na>", "nat"):
+        return ""
+    return s
+
+
+def translation_skipped_no_source(source_text: object) -> bool:
+    """True when we should not call the translation API (empty STT or explicit no-speech placeholder)."""
+    s = _normalize_translation_source(source_text)
+    return not s or s.lower() == "(no speech)"
 
 
 @dataclass
@@ -112,11 +139,14 @@ def translate_text(
     Optional ``temperature``, ``top_p``, and ``max_output_tokens`` override the
     YAML config for sweeps and sensitivity analysis.
     """
+    if translation_skipped_no_source(source_text):
+        return EMPTY_TRANSCRIPTION_MESSAGE_EN
 
+    src = _normalize_translation_source(source_text)
     config = _load_model_config(config_id)
     user_template = _load_prompt_template(config.prompt_template_id)
     user_prompt = user_template.format(
-        source_text=source_text,
+        source_text=src,
         source_language=source_language,
         target_language=target_language,
     )

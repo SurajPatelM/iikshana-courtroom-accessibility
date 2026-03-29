@@ -40,9 +40,11 @@ from model_pipeline_paths import (
 )
 
 from backend.src.services.gemini_translation import (
+    EMPTY_TRANSCRIPTION_MESSAGE_EN,
     _load_model_config,
     _get_text_client,
     translate_text,
+    translation_skipped_no_source,
 )
 from backend.src.services.groq_stt_service import (
     transcribe_audio,
@@ -242,8 +244,8 @@ def _run_on_manifest(
     return pd.DataFrame(rows)
 
 
-def _run_translation_inputs(path: Path, config_id: str) -> pd.DataFrame:
-    """Load translation_inputs and call translate_text for each row."""
+def _run_translation_inputs(path: Path, config_id: str) -> tuple[pd.DataFrame, int]:
+    """Load translation_inputs and call translate_text for each row (API skipped when source is empty)."""
     if path.suffix == ".parquet":
         df = pd.read_parquet(path)
     else:
@@ -252,17 +254,24 @@ def _run_translation_inputs(path: Path, config_id: str) -> pd.DataFrame:
         if col not in df.columns:
             raise ValueError(f"translation_inputs must have column: {col}")
     translations: List[str] = []
+    n_api_calls = 0
     for _, row in df.iterrows():
-        t = translate_text(
-            source_text=str(row["source_text"]),
-            source_language=str(row["source_language"]),
-            target_language=str(row["target_language"]),
-            config_id=config_id,
+        raw_src = row["source_text"]
+        if translation_skipped_no_source(raw_src):
+            translations.append(EMPTY_TRANSCRIPTION_MESSAGE_EN)
+            continue
+        n_api_calls += 1
+        translations.append(
+            translate_text(
+                source_text=raw_src,
+                source_language=str(row["source_language"]),
+                target_language=str(row["target_language"]),
+                config_id=config_id,
+            )
         )
-        translations.append(t)
     df = df.copy()
     df["translated_text_model"] = translations
-    return df
+    return df, n_api_calls
 
 
 def main() -> None:
@@ -285,9 +294,13 @@ def main() -> None:
     inputs_path = find_translation_inputs(model_split, pipeline_split, TRANSLATION_INPUTS_BASENAME)
     if inputs_path is not None:
         print(f"Using {inputs_path} for translation inputs...")
-        df = _run_translation_inputs(inputs_path, args.config_id)
+        df, n_api_calls = _run_translation_inputs(inputs_path, args.config_id)
         n_rows = len(df)
-        print(f"Calling Gemini API for {n_rows} row(s) (config={args.config_id})...")
+        n_skipped = n_rows - n_api_calls
+        print(
+            f"Translation API calls: {n_api_calls} of {n_rows} row(s) "
+            f"({n_skipped} empty/no-speech source skipped, config={args.config_id})..."
+        )
     else:
         manifest = _load_manifest(pipeline_split)
         if not manifest:
@@ -317,7 +330,12 @@ def main() -> None:
     out_name = f"translation_predictions_{args.config_id}.csv"
     out_path = model_split / out_name
     df.to_csv(out_path, index=False)
-    print(f"Done: {len(df)} API call(s), CSV output saved to {out_path}")
+    if inputs_path is not None:
+        print(
+            f"Done: {n_api_calls} translation API call(s) ({len(df)} rows), CSV saved to {out_path}"
+        )
+    else:
+        print(f"Done: {len(df)} row(s), CSV output saved to {out_path}")
 
 
 if __name__ == "__main__":

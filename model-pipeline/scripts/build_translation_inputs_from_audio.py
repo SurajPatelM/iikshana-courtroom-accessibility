@@ -83,7 +83,13 @@ def _parse_args() -> argparse.Namespace:
         "--max-rows",
         type=int,
         default=50,
-        help="Max manifest entries to process (default 50).",
+        help="Max manifest entries to process (default 50). Use 0 for all entries (after --offset).",
+    )
+    p.add_argument(
+        "--target-language",
+        type=str,
+        default=DEFAULT_TARGET_LANGUAGE,
+        help="Target language code written into translation_inputs (default es).",
     )
     p.add_argument("--stt-model", type=str, default=DEFAULT_STT_MODEL)
     p.add_argument(
@@ -109,6 +115,12 @@ def _parse_args() -> argparse.Namespace:
         default=None,
         help="Random seed for --shuffle (e.g. 42). Omit for different files each run.",
     )
+    p.add_argument(
+        "--tail",
+        type=int,
+        default=0,
+        help="If >0, only process the last N manifest entries (newest clips). Ignores --offset and --max-rows.",
+    )
     return p.parse_args()
 
 
@@ -130,6 +142,14 @@ def _ravdess_statement_from_file(file_name: str) -> str | None:
     if len(parts) >= 5:
         return parts[4]  # statement 01 or 02
     return None
+
+
+def _expo_timestamp_from_filename(file_name: str) -> str:
+    """UTC id embedded in EXPO_<ts>.wav (same as ingest); empty if not EXPO."""
+    lower = file_name.lower()
+    if not file_name.startswith("EXPO_") or not lower.endswith(".wav"):
+        return ""
+    return file_name[5 : len(file_name) - 4]
 
 
 def _reference_translation_for_entry(entry: Dict[str, Any], file_name: str) -> str:
@@ -162,16 +182,22 @@ def main() -> None:
         print(f"[ERROR] No {MANIFEST_FILENAME} in {pipeline_split}")
         sys.exit(1)
 
-    if args.shuffle:
-        if args.seed is not None:
-            random.seed(args.seed)
-        manifest = list(manifest)
-        random.shuffle(manifest)
+    if args.tail and args.tail > 0:
+        start = max(0, len(manifest) - args.tail)
+        subset = manifest[start:]
+        print(f"Using last {len(subset)} of {len(manifest)} manifest entries (--tail {args.tail})")
+    else:
+        if args.shuffle:
+            if args.seed is not None:
+                random.seed(args.seed)
+            manifest = list(manifest)
+            random.shuffle(manifest)
 
-    start = min(args.offset, len(manifest))
-    subset = manifest[start : start + args.max_rows]
-    if start > 0 or args.shuffle:
-        print(f"Using {len(subset)} entries (offset={start}, shuffle={args.shuffle})")
+        start = min(args.offset, len(manifest))
+        end = len(manifest) if args.max_rows <= 0 else min(start + args.max_rows, len(manifest))
+        subset = manifest[start:end]
+        if start > 0 or args.shuffle or args.max_rows <= 0:
+            print(f"Using {len(subset)} entries (offset={start}, max_rows={args.max_rows}, shuffle={args.shuffle})")
     rows: List[Dict[str, Any]] = []
 
     for i, entry in enumerate(subset):
@@ -201,16 +227,22 @@ def main() -> None:
         ref = _reference_translation_for_entry(entry, file_name)
         if not ref and entry.get("dataset", "").strip().upper() == "RAVDESS":
             print(f"[WARN] No reference for RAVDESS file {file_name}; ref will be empty")
+        if not source_text and (entry.get("dataset") or "").strip().upper() == "EXPO":
+            print(
+                f"[WARN] Empty transcript for EXPO {file_name} — translation will not call the LLM "
+                "(empty source); check audio, STT, and GROQ_API_KEY."
+            )
 
         rows.append({
             "source_text": source_text,
             "source_language": DEFAULT_SOURCE_LANGUAGE,
-            "target_language": DEFAULT_TARGET_LANGUAGE,
+            "target_language": (args.target_language or DEFAULT_TARGET_LANGUAGE).strip() or DEFAULT_TARGET_LANGUAGE,
             "reference_translation": ref,
             "file": file_name,
             "dataset": entry.get("dataset", ""),
             "speaker_id": entry.get("speaker_id", ""),
             "emotion": entry.get("emotion", ""),
+            "expo_timestamp_utc": _expo_timestamp_from_filename(file_name),
         })
 
     if not rows:
@@ -219,18 +251,28 @@ def main() -> None:
 
     import pandas as pd
     df = pd.DataFrame(rows)
-    # Keep only rows that have a reference translation (so eval is well-defined)
-    df = df[df["reference_translation"].astype(str).str.len() > 0].reset_index(drop=True)
+    # RAVDESS (and other curated sets): require gold reference for metric-based eval.
+    # EXPO (UI recordings): keep rows even without reference so batch translate matches Streamlit STT→translate path.
+    ds_upper = df["dataset"].astype(str).str.strip().str.upper()
+    has_ref = df["reference_translation"].astype(str).str.strip().str.len() > 0
+    keep = has_ref | (ds_upper == "EXPO")
+    n_expo_no_ref = int(((ds_upper == "EXPO") & ~has_ref).sum())
+    df = df[keep].reset_index(drop=True)
     if df.empty:
-        print("[ERROR] No rows with reference_translation (e.g. only non-RAVDESS?). Add ref mapping or use RAVDESS.")
+        print(
+            "[ERROR] No rows after filter. Need reference_translation for non-EXPO datasets, or EXPO rows in manifest."
+        )
         sys.exit(1)
 
     model_split.mkdir(parents=True, exist_ok=True)
     out_path = model_split / f"{TRANSLATION_INPUTS_BASENAME}.csv"
     df.to_csv(out_path, index=False)
-    print(
+    msg = (
         f"Wrote {len(df)} rows to {out_path} (from {pipeline_split} audio + STT + reference mapping)."
     )
+    if n_expo_no_ref:
+        msg += f" ({n_expo_no_ref} EXPO row(s) without reference; metrics skip those segments.)"
+    print(msg)
     print("Run build_eval_dataset.py --split dev and run_translation_eval.py to use this table.")
 
 

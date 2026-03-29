@@ -104,6 +104,19 @@ def _load_translation_val(inputs_path: Path, max_rows: int) -> tuple[pd.DataFram
     return features, labels
 
 
+def _pairs_with_nonempty_reference(
+    references: List[str], hypotheses: List[str]
+) -> tuple[List[str], List[str]]:
+    """Omit segments with no gold reference (e.g. EXPO) from reference-based metrics."""
+    r_out: List[str] = []
+    h_out: List[str] = []
+    for r, h in zip(references, hypotheses):
+        if str(r or "").strip():
+            r_out.append(str(r))
+            h_out.append(str(h or ""))
+    return r_out, h_out
+
+
 def _compute_bleu(references: List[str], hypotheses: List[str]) -> float:
     try:
         import sacrebleu
@@ -136,7 +149,12 @@ def _compute_chrf(references: List[str], hypotheses: List[str]) -> float:
 def _segment_bleus(references: List[str], hypotheses: List[str]) -> List[float]:
     try:
         import sacrebleu
-        return [sacrebleu.sentence_bleu(hyp, [ref]).score for ref, hyp in zip(references, hypotheses)]
+        scores: List[float] = []
+        for ref, hyp in zip(references, hypotheses):
+            if not str(ref or "").strip():
+                continue
+            scores.append(sacrebleu.sentence_bleu(hyp, [ref]).score)
+        return scores
     except ImportError:
         return []
     except Exception:
@@ -326,6 +344,10 @@ def _save_translation_cm_plot(references: List[str], predictions: List[str], out
         import matplotlib.pyplot as plt
         import numpy as np
 
+        pairs = [(r, p) for r, p in zip(references, predictions) if str(r or "").strip()]
+        if not pairs:
+            return
+        references, predictions = zip(*pairs)
         exact = [(r or "").strip().lower() == (p or "").strip().lower() for r, p in zip(references, predictions)]
         short_ref = [len((r or "").strip()) < 50 for r in references]
         # Rows: Reference length (Short, Long), Cols: Exact match (No, Yes)
@@ -403,15 +425,17 @@ def main() -> None:
             preds = preds + [""] * (len(references) - len(preds))
         preds = preds[: len(references)]
 
-        bleu = _compute_bleu(references, preds)
-        chrf = _compute_chrf(references, preds)
-        exact_match = _exact_match_accuracy(references, preds)
+        ref_scored, pred_scored = _pairs_with_nonempty_reference(references, preds)
+        bleu = _compute_bleu(ref_scored, pred_scored) if ref_scored else 0.0
+        chrf = _compute_chrf(ref_scored, pred_scored) if ref_scored else 0.0
+        exact_match = _exact_match_accuracy(ref_scored, pred_scored)
 
         row: Dict[str, Any] = {
             "config_id": config_id,
             "task": args.task,
             "split": args.split,
             "n_samples": n,
+            "n_scored_for_metric": len(ref_scored),
             "bleu": round(bleu, 4),
             "chrf": round(chrf, 4),
             "exact_match_accuracy": exact_match,

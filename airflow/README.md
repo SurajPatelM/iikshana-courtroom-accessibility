@@ -21,6 +21,9 @@ docker compose up      # start webserver, scheduler, DB
 
 Then open `http://localhost:8080` in your browser.
 
+- **Expo Streamlit UI:** `demo/streamlit_expo_app.py` can trigger **`model_pipeline_dag`** via `docker compose exec`. **Unpause** that DAG once (toggle in the UI); new DAGs start paused if `DAGS_ARE_PAUSED_AT_CREATION` is true.
+- **Trigger conf** (optional): `{"split": "dev", "refresh_inputs": true}` drops stale `translation_inputs` so the build step re-runs. Add `"refresh_config_search": true` only when you want to delete `config_search_results.json` and re-run config search (default / expo UI: omit or `false` to reuse the last best config). **`manifest_tail`** (default `200`): only the **last N** manifest entries are turned into rows each run — CSVs are **rewritten**, not appended, so line count stays about **N + header**, not one line per lifetime recording.
+
 - Default login (can be changed in `.env`):  
   - **Username**: `airflow`  
   - **Password**: `airflow`
