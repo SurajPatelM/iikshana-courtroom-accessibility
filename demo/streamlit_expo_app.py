@@ -387,6 +387,21 @@ def main() -> None:
     )
     st.markdown(f"### {text}")
 
+    # Speak the translated text using browser SpeechSynthesis API
+    st.components.v1.html(f'''
+        <script>
+        const txt = {repr(text)};
+        if (window.speechSynthesis) {{
+            // Cancel any ongoing speech
+            window.speechSynthesis.cancel();
+            // Speak the new text
+            const utter = new window.SpeechSynthesisUtterance(txt);
+            utter.lang = '{target_language}';
+            window.speechSynthesis.speak(utter);
+        }}
+        </script>
+    ''', height=0)
+
     with st.expander("Pipeline details"):
         st.write(f"**Best config:** `{best_cfg}`")
         st.write(f"**Predictions file:** `{pred_path}`")
