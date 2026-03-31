@@ -40,10 +40,10 @@ def _run_anomaly_checks(**kwargs):
     """Run anomaly detection; raise on anomalies so Airflow triggers email_on_failure (PDF: alert on anomalies)."""
     _ensure_scripts_on_path()
     from scripts.anomaly_check import run_anomaly_checks
-    from scripts.utils import RAW_DIR, PROCESSED_DIR
+    from scripts.utils import RAW_DIR, PROCESSED_DIR, PROCESSED_EMOTION_DIR
     report = run_anomaly_checks(
         raw_dir=RAW_DIR,
-        processed_dir=PROCESSED_DIR,
+        processed_dir=PROCESSED_EMOTION_DIR,
         report_path=PROCESSED_DIR / "anomaly_report.json",
     )
     if not report.get("passed", True):

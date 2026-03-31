@@ -1,6 +1,13 @@
 # Dataset sources for Iikshana data pipeline
 # Many emotion/speech datasets require registration; URLs below are examples or public mirrors where available.
 
+# Subdirectories under data/processed/ (global JSON reports stay at data/processed/*.json).
+# Override with env: PIPELINE_EMOTION_SUBDIR, PIPELINE_STT_SUBDIR, PIPELINE_LEGAL_SUBDIR.
+processed_layout:
+  emotion_subdir: emotions
+  stt_subdir: stt
+  legal_subdir: legal
+
 emotion_datasets:
   RAVDESS:
     # Ryerson Audio-Visual Database of Emotional Speech and Song
@@ -72,6 +79,8 @@ validation:
   allowed_emotion_labels:
     RAVDESS: ["neutral", "calm", "happy", "sad", "angry", "fearful", "disgust", "surprised"]
     IEMOCAP: ["neutral", "happiness", "sadness", "anger", "frustrated"]
+  # Unified-7 canonical labels (after canonicalization by label_extractors.py)
+  canonical_emotion_labels: ["neutral", "happy", "sad", "angry", "fear", "disgust", "surprised"]
 
 # Optional: anomaly check thresholds (defaults used if missing)
 anomaly_checks:

@@ -8,7 +8,7 @@ from pathlib import Path
 
 import soundfile as sf
 
-from scripts.utils import get_logger, load_config, PROCESSED_DIR
+from scripts.utils import get_logger, load_config, PROCESSED_DIR, PROCESSED_EMOTION_DIR
 
 logger = get_logger("validate_schema")
 
@@ -88,13 +88,14 @@ def run_validation(
     min_dur = val_cfg.get("min_duration_sec", 0.5)
     max_dur = val_cfg.get("max_duration_sec", 30.0)
 
+    # Emotion splits live under data/processed/emotions/; reports stay at data/processed/.
     if data_dir is None:
-        data_dir = PROCESSED_DIR
+        data_dir = PROCESSED_EMOTION_DIR
     data_dir = Path(data_dir)
     if schema_out is None:
-        schema_out = data_dir / "audio_schema.json"
+        schema_out = PROCESSED_DIR / "audio_schema.json"
     if report_out is None:
-        report_out = data_dir / "quality_report.json"
+        report_out = PROCESSED_DIR / "quality_report.json"
 
     results = {"files_checked": 0, "passed": 0, "failed": 0, "file_reports": [], "manifest_errors": []}
     for split in ("dev", "test", "holdout"):

@@ -16,8 +16,13 @@ if str(PIPELINE_ROOT) not in sys.path:
 
 def _run_validation(**kwargs):
     from scripts.validate_schema import run_validation
-    from scripts.utils import PROCESSED_DIR
-    r = run_validation(data_dir=PROCESSED_DIR, schema_out=PROCESSED_DIR / "audio_schema.json", report_out=PROCESSED_DIR / "quality_report.json")
+    from scripts.utils import PROCESSED_DIR, PROCESSED_EMOTION_DIR
+
+    r = run_validation(
+        data_dir=PROCESSED_EMOTION_DIR,
+        schema_out=PROCESSED_DIR / "audio_schema.json",
+        report_out=PROCESSED_DIR / "quality_report.json",
+    )
     if r.get("failed", 0) > 0 and r.get("passed", 0) == 0:
         raise RuntimeError("All validation checks failed")
     return r

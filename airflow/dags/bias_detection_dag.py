@@ -15,8 +15,12 @@ if str(PIPELINE_ROOT) not in sys.path:
 
 def _run_bias_detection(**kwargs):
     from scripts.detect_bias import run_bias_analysis
-    from scripts.utils import PROCESSED_DIR
-    return run_bias_analysis(data_dir=PROCESSED_DIR, report_path=PROCESSED_DIR / "bias_report.json")
+    from scripts.utils import PROCESSED_DIR, PROCESSED_EMOTION_DIR
+
+    return run_bias_analysis(
+        data_dir=PROCESSED_EMOTION_DIR,
+        report_path=PROCESSED_DIR / "bias_report.json",
+    )
 
 
 _default_args = {

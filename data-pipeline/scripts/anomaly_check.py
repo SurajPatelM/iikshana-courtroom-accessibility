@@ -2,10 +2,12 @@
 Anomaly detection: missing/corrupt files, duration distribution, label imbalance, schema violations.
 Can trigger email/Slack alerts when anomalies are detected (configure in Airflow).
 """
+from __future__ import annotations
+
 import json
 from pathlib import Path
 
-from scripts.utils import get_logger, load_config, PROCESSED_DIR, RAW_DIR
+from scripts.utils import get_logger, load_config, PROCESSED_DIR, PROCESSED_EMOTION_DIR, RAW_DIR
 
 logger = get_logger("anomaly_check")
 
@@ -134,13 +136,17 @@ def check_duration_distribution(processed_dir: Path) -> list[str]:
     return anomalies
 
 
-def check_schema_failures(processed_dir: Path) -> list[str]:
-    """Treat validation DAG failures as anomalies when fail_on_schema_failures is true."""
+def check_schema_failures(reports_root: Path | None = None) -> list[str]:
+    """Treat validation DAG failures as anomalies when fail_on_schema_failures is true.
+
+    reports_root: directory containing quality_report.json (default: data/processed).
+    """
     anomalies = []
     cfg = load_config().get("anomaly_checks", {})
     if not cfg.get("fail_on_schema_failures", True):
         return anomalies
-    report_path = processed_dir / "quality_report.json"
+    root = reports_root or PROCESSED_DIR
+    report_path = root / "quality_report.json"
     if not report_path.exists():
         anomalies.append("Validation report missing; run validation_dag first")
         return anomalies
@@ -161,7 +167,12 @@ def check_schema_failures(processed_dir: Path) -> list[str]:
 
 
 def check_label_imbalance(processed_dir: Path) -> list[str]:
-    """Check for severe label imbalance (any class > max_class_ratio or < min_class_ratio)."""
+    """Check for severe label imbalance (any class > max_class_ratio or < min_class_ratio).
+
+    Only counts entries where task == 'emotion' (or task is missing, for backward
+    compatibility with older manifests).  STT-only entries are excluded so they
+    don't inflate the 'unknown' bucket.
+    """
     from collections import Counter
 
     anomalies = []
@@ -171,6 +182,7 @@ def check_label_imbalance(processed_dir: Path) -> list[str]:
     min_total_for_min_ratio = 20  # only flag "too small" class when total is large enough
 
     counts = Counter()
+    has_task_field = False
     for split in ("dev", "test", "holdout"):
         manifest = processed_dir / split / "manifest.json"
         if not manifest.exists():
@@ -178,12 +190,23 @@ def check_label_imbalance(processed_dir: Path) -> list[str]:
         with open(manifest, encoding="utf-8") as f:
             data = json.load(f)
         for item in (data if isinstance(data, list) else data.get("items", [])):
+            task = item.get("task")
+            if task is not None:
+                has_task_field = True
+            if task is not None and task != "emotion":
+                continue
             label = item.get("emotion") or item.get("label") or "unknown"
             counts[label] += 1
+
+    if not has_task_field:
+        logger.warning(
+            "Manifests lack 'task' field — counting all entries for label balance. "
+            "Re-run stratified_split to generate updated manifests."
+        )
+
     if not counts:
         return anomalies
     total = sum(counts.values())
-    # Allow 100% unknown so DAG can pass before emotion inference is fixed (e.g. RAVDESS codes)
     if len(counts) == 1 and "unknown" in counts:
         return anomalies
     for label, cnt in counts.items():
@@ -259,9 +282,9 @@ def run_anomaly_checks(
 ) -> dict:
     """Run all checks; return report. Raise or alert if anomalies found."""
     raw_dir = raw_dir or RAW_DIR
-    processed_dir = processed_dir or PROCESSED_DIR
+    processed_dir = processed_dir or PROCESSED_EMOTION_DIR
     if report_path is None:
-        report_path = processed_dir / "anomaly_report.json"
+        report_path = PROCESSED_DIR / "anomaly_report.json"
 
     all_anomalies = []
     missing_anomalies, not_extracted_raw_dirs = check_missing_files(raw_dir)
@@ -269,7 +292,7 @@ def run_anomaly_checks(
     if not_extracted_raw_dirs:
         logger.warning("Raw dirs with archives not extracted (no processable media yet): %s", not_extracted_raw_dirs)
     all_anomalies.extend(check_processed_splits_present(processed_dir))
-    all_anomalies.extend(check_schema_failures(processed_dir))
+    all_anomalies.extend(check_schema_failures())
     all_anomalies.extend(check_duration_distribution(processed_dir))
     all_anomalies.extend(check_label_imbalance(processed_dir))
     all_anomalies.extend(check_manifest_file_consistency(processed_dir))

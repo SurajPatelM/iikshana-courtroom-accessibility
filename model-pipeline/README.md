@@ -1,7 +1,7 @@
 # Model Pipeline (Clean Runbook)
 
 This folder contains the model-development flow.
-It runs on top of `data/processed/<split>/` produced by the data pipeline.
+It runs on top of `data/processed/emotions/<split>/` produced by the data pipeline (override with `PIPELINE_DATA_DIR` for other roots, e.g. `data/processed/stt`).
 
 Core idea: we do **not** train external API model weights. We tune and evaluate
 **model configuration** (provider/model + prompts + decoding params), then
@@ -11,7 +11,7 @@ package that configuration and push it to registry.
 
 ## Current Status 
 
-- The model pipeline covers end-to-end on top of `data/processed/<split>/`.
+- The model pipeline covers end-to-end on top of `data/processed/emotions/<split>/` by default.
 - The flow is **config-driven** (YAML + prompts), not hardcoded.
 - It runs translation experiments, ranks configs, validates a selected config, performs fairness slicing, and packages selected configs for registry.
 

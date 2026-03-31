@@ -72,7 +72,7 @@ echo "=== Model pipeline: build translation_inputs.csv (audio -> STT -> referenc
 export PYTHONPATH=/workspace
 cd /workspace
 SPLIT="{{ params.get('split', 'dev') }}"
-INPUTS_PATH="data/processed/${SPLIT}/translation_inputs.csv"
+INPUTS_PATH="data/processed/emotions/${SPLIT}/translation_inputs.csv"
 if [ -s "$INPUTS_PATH" ]; then
   echo "[SKIP] translation_inputs already exists: $INPUTS_PATH"
   exit 0
@@ -90,7 +90,7 @@ echo "=== Model pipeline: config search (select best config_id) ==="
 export PYTHONPATH=/workspace
 cd /workspace
 SPLIT="{{ params.get('split', 'dev') }}"
-RESULTS_JSON="data/processed/${SPLIT}/config_search_results.json"
+RESULTS_JSON="data/processed/emotions/${SPLIT}/config_search_results.json"
 if [ -s "$RESULTS_JSON" ]; then
   echo "[SKIP] config_search_results already exists: $RESULTS_JSON"
   exit 0
@@ -110,7 +110,7 @@ echo "=== Model pipeline: translation evaluation (best config selected) ==="
 export PYTHONPATH=/workspace
 cd /workspace
 SPLIT="{{ params.get('split', 'dev') }}"
-RESULTS_JSON="data/processed/${SPLIT}/config_search_results.json"
+RESULTS_JSON="data/processed/emotions/${SPLIT}/config_search_results.json"
 BEST_CONFIG_ID=$(python -c "import json; print(json.load(open('${RESULTS_JSON}', 'r', encoding='utf-8'))['best_config_id'])" 2>/dev/null || echo "{{ params.get('config_id', 'translation_flash_v1') }}")
 echo "Best config_id = ${BEST_CONFIG_ID}"
 python model-pipeline/scripts/model_setup.py \

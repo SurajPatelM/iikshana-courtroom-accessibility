@@ -24,8 +24,17 @@ def _run_preprocess(**kwargs):
 
 def _run_split(**kwargs):
     from scripts.stratified_split import run_split
-    from scripts.utils import PROCESSED_DIR
-    return run_split(staged_dir=PROCESSED_DIR / "staged", out_dir=PROCESSED_DIR)
+    from scripts.utils import PROCESSED_EMOTION_DIR, PROCESSED_STT_DIR
+
+    emo = run_split(
+        staged_dir=PROCESSED_EMOTION_DIR / "staged",
+        out_dir=PROCESSED_EMOTION_DIR,
+    )
+    stt = run_split(
+        staged_dir=PROCESSED_STT_DIR / "staged",
+        out_dir=PROCESSED_STT_DIR,
+    )
+    return {"emotion": emo, "stt": stt}
 
 
 _default_args = {

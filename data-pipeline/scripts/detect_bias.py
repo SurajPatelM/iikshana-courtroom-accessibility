@@ -2,12 +2,14 @@
 Bias detection via data slicing using Fairlearn (PDF §3.2: SliceFinder, TFMA, or Fairlearn).
 Slice by demographics (gender, accent), emotion, language, audio quality; document disparities and mitigation.
 """
+from __future__ import annotations
+
 import json
 from pathlib import Path
 
 import pandas as pd
 
-from scripts.utils import get_logger, load_config, PROCESSED_DIR
+from scripts.utils import get_logger, load_config, PROCESSED_DIR, PROCESSED_EMOTION_DIR
 
 logger = get_logger("detect_bias")
 
@@ -77,14 +79,19 @@ def run_bias_analysis(
 ) -> dict:
     """Run slicing, compute counts, and write bias report."""
     if data_dir is None:
-        data_dir = PROCESSED_DIR
+        data_dir = PROCESSED_EMOTION_DIR
     data_dir = Path(data_dir)
     if report_path is None:
-        report_path = data_dir / "bias_report.json"
+        report_path = PROCESSED_DIR / "bias_report.json"
 
-    entries = load_manifests(data_dir)
-    if not entries:
+    all_entries = load_manifests(data_dir)
+    if not all_entries:
         logger.warning("No manifest entries found under %s", data_dir)
+        return {"slices": {}, "disparities": [], "recommendations": [], "fairlearn_by_group": {}}
+
+    entries = [e for e in all_entries if e.get("task", "emotion") == "emotion"]
+    if not entries:
+        logger.warning("No emotion-task entries found; skipping bias analysis")
         return {"slices": {}, "disparities": [], "recommendations": [], "fairlearn_by_group": {}}
 
     by_emotion = slice_by_emotion(entries)

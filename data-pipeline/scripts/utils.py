@@ -51,3 +51,18 @@ def load_config(filename: str = "datasets.yaml") -> dict:
         return {}
     with open(path, encoding="utf-8") as f:
         return yaml.safe_load(f) or {}
+
+
+def _processed_layout_subdir(cfg_key: str, default: str, env_var: str) -> Path:
+    """Resolve data/processed/<name>/ from datasets.yaml processed_layout and optional env override."""
+    cfg = load_config().get("processed_layout") or {}
+    name = (os.environ.get(env_var) or "").strip() or cfg.get(cfg_key, default)
+    name = str(name).strip().strip("/\\")
+    return PROCESSED_DIR / name
+
+
+# Split processed outputs: emotion benchmarks vs STT-only vs future legal (see processed_layout in datasets.yaml).
+# Global reports (quality_report.json, anomaly_report.json, …) stay under PROCESSED_DIR.
+PROCESSED_EMOTION_DIR = _processed_layout_subdir("emotion_subdir", "emotions", "PIPELINE_EMOTION_SUBDIR")
+PROCESSED_STT_DIR = _processed_layout_subdir("stt_subdir", "stt", "PIPELINE_STT_SUBDIR")
+PROCESSED_LEGAL_DIR = _processed_layout_subdir("legal_subdir", "legal", "PIPELINE_LEGAL_SUBDIR")

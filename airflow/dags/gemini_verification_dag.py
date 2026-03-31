@@ -18,8 +18,14 @@ if str(PIPELINE_ROOT) not in sys.path:
 
 def _run_gemini_verification(**kwargs):
     from scripts.verify_gemini_audio import run_verification, EXIT_FAILURE
-    from scripts.utils import PROCESSED_DIR
-    result = run_verification(data_dir=PROCESSED_DIR, max_files=2, prefer_split="staged", force_run=False)
+    from scripts.utils import PROCESSED_EMOTION_DIR
+
+    result = run_verification(
+        data_dir=PROCESSED_EMOTION_DIR,
+        max_files=2,
+        prefer_split="staged",
+        force_run=False,
+    )
     if result.get("skipped"):
         return result
     if result.get("exit_code") == EXIT_FAILURE or not result.get("success"):

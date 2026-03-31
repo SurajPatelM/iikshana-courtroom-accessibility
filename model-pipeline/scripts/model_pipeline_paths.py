@@ -1,7 +1,7 @@
 """
 Split data pipeline vs model pipeline directories.
 
-- **Pipeline root** (default ``data/processed``): manifests, WAVs — read-only for model scripts.
+- **Pipeline root** (default ``data/processed/emotions``): emotion-benchmark manifests and WAVs — read-only for model scripts. Use ``PIPELINE_DATA_DIR`` for STT-only data under ``data/processed/stt``.
 - **Model output root** (default ``data/model_runs``): translation_inputs, predictions, validation, bias, etc.
 
 Legacy: ``--data-dir`` sets a single root for both (tests / old workflows).
@@ -15,7 +15,7 @@ import os
 from pathlib import Path
 from typing import Optional, Tuple
 
-DEFAULT_PIPELINE_REL = "data/processed"
+DEFAULT_PIPELINE_REL = "data/processed/emotions"
 DEFAULT_MODEL_OUTPUT_REL = "data/model_runs"
 
 

@@ -2,11 +2,24 @@
 Stratified split: Dev 20%, Test 70%, Holdout 10% by speaker identity (no overlap),
 and optionally by language, emotion, demographics, audio quality.
 """
+from __future__ import annotations
+
 import json
 import re
+import sys
 from pathlib import Path
 
-from scripts.utils import get_logger, load_config, PROCESSED_DIR
+# Allow running as `python3 stratified_split.py` from data-pipeline/scripts/ or from repo root
+_PIPELINE_ROOT = Path(__file__).resolve().parent.parent
+if str(_PIPELINE_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PIPELINE_ROOT))
+
+from scripts.utils import get_logger, load_config, PROCESSED_EMOTION_DIR, PROCESSED_STT_DIR
+from scripts.label_extractors import (
+    detect_dataset_name,
+    extract_emotion,
+    dataset_task,
+)
 
 logger = get_logger("stratified_split")
 
@@ -70,12 +83,34 @@ def infer_emotion(path: Path) -> str:
     return "unknown"
 
 
-def collect_meta(files: list[Path]) -> list[dict]:
-    """Collect path, speaker_id, emotion for each file."""
-    return [
-        {"path": str(f), "speaker_id": infer_speaker_id(f), "emotion": infer_emotion(f)}
-        for f in files
-    ]
+def collect_meta(files: list[Path], staged_root: Path | None = None) -> list[dict]:
+    """Collect path, speaker_id, emotion, dataset, and task for each file.
+
+    Uses dataset-specific label extractors when available, falling back to
+    the legacy infer_emotion() heuristic.
+    """
+    results = []
+    for f in files:
+        dataset = detect_dataset_name(f, staged_root) if staged_root else "unknown"
+        task = dataset_task(dataset)
+
+        emotion = extract_emotion(dataset, f)
+        # MELD labels come only from CSV join; orphan clips (audio without a row for
+        # this split) are skipped so manifests stay free of bogus "unknown".
+        if dataset == "MELD" and emotion is None:
+            logger.debug("Skipping MELD clip with no CSV label: %s", f)
+            continue
+        if emotion is None and task == "emotion":
+            emotion = infer_emotion(f)
+
+        results.append({
+            "path": str(f),
+            "speaker_id": infer_speaker_id(f),
+            "emotion": emotion or "unknown",
+            "dataset": dataset,
+            "task": task,
+        })
+    return results
 
 
 def stratified_split_by_speaker(
@@ -124,9 +159,9 @@ def run_split(
     holdout_ratio = float(splits_cfg.get("holdout", 0.10))
 
     if staged_dir is None:
-        staged_dir = PROCESSED_DIR / "staged"
+        staged_dir = PROCESSED_EMOTION_DIR / "staged"
     if out_dir is None:
-        out_dir = PROCESSED_DIR
+        out_dir = PROCESSED_EMOTION_DIR
     staged_dir = Path(staged_dir)
     out_dir = Path(out_dir)
 
@@ -138,7 +173,7 @@ def run_split(
         logger.warning("No audio files in %s", staged_dir)
         return {"dev": 0, "test": 0, "holdout": 0}
 
-    meta = collect_meta(files)
+    meta = collect_meta(files, staged_root=staged_dir)
     dev_meta, test_meta, holdout_meta = stratified_split_by_speaker(
         meta, dev_ratio=dev_ratio, test_ratio=test_ratio, holdout_ratio=holdout_ratio
     )
@@ -152,12 +187,7 @@ def run_split(
             src = Path(m["path"])
             if not src.exists():
                 continue
-            try:
-                rel = src.relative_to(staged_dir)
-                dataset = rel.parts[0] if rel.parts else "unknown"
-            except ValueError:
-                dataset = "unknown"
-            dataset = re.sub(r"[\s/\\]+", "_", dataset)
+            dataset = re.sub(r"[\s/\\]+", "_", m.get("dataset", "unknown"))
             dest_name = f"{dataset}_{src.stem}.wav"
             idx = 0
             while dest_name in used_names:
@@ -173,6 +203,7 @@ def run_split(
                 "dataset": dataset,
                 "speaker_id": m["speaker_id"],
                 "emotion": m["emotion"],
+                "task": m.get("task", "emotion"),
             })
         manifest_path = split_dir / "manifest.json"
         with open(manifest_path, "w", encoding="utf-8") as f:
@@ -184,8 +215,17 @@ def run_split(
 
 def main() -> None:
     import sys
-    staged = sys.argv[1] if len(sys.argv) > 1 else None
-    run_split(staged_dir=Path(staged) if staged else None)
+    if len(sys.argv) >= 3:
+        run_split(staged_dir=Path(sys.argv[1]), out_dir=Path(sys.argv[2]))
+    elif len(sys.argv) == 2:
+        run_split(staged_dir=Path(sys.argv[1]))
+    else:
+        emo = run_split()
+        stt = run_split(
+            staged_dir=PROCESSED_STT_DIR / "staged",
+            out_dir=PROCESSED_STT_DIR,
+        )
+        logger.info("stratified_split emotion: %s; stt: %s", emo, stt)
 
 
 if __name__ == "__main__":

@@ -84,7 +84,7 @@ def _parse_args() -> argparse.Namespace:
         "--pipeline-data-dir",
         type=str,
         default="",
-        help="Root with manifest+WAVs (default: data/processed).",
+        help="Root with manifest+WAVs (default: data/processed/emotions).",
     )
     parser.add_argument(
         "--model-output-root",

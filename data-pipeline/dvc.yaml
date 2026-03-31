@@ -1,6 +1,6 @@
 # DVC pipeline definition for Iikshana data pipeline (data at repo root data/)
 # Run with: dvc repro (from data-pipeline/)
-# Track data with: dvc add ../data/raw/RAVDESS ../data/processed/dev ../data/processed/test ../data/processed/holdout ../data/legal_glossary
+# Track data with: dvc add ../data/raw/... ../data/processed/emotions/... ../data/legal_glossary
 
 stages:
   download:
@@ -21,17 +21,22 @@ stages:
       - config/datasets.yaml
       - ../data/raw
     outs:
-      - ../data/processed/dev
-      - ../data/processed/test
-      - ../data/processed/holdout
+      - ../data/processed/emotions/staged
+      - ../data/processed/emotions/dev
+      - ../data/processed/emotions/test
+      - ../data/processed/emotions/holdout
+      - ../data/processed/stt/staged
+      - ../data/processed/stt/dev
+      - ../data/processed/stt/test
+      - ../data/processed/stt/holdout
 
   validate:
     cmd: python -m scripts.validate_schema
     deps:
       - scripts/validate_schema.py
-      - ../data/processed/dev
-      - ../data/processed/test
-      - ../data/processed/holdout
+      - ../data/processed/emotions/dev
+      - ../data/processed/emotions/test
+      - ../data/processed/emotions/holdout
     outs:
       - ../data/processed/audio_schema.json
       - ../data/processed/quality_report.json
@@ -40,9 +45,9 @@ stages:
     cmd: python -m scripts.detect_bias
     deps:
       - scripts/detect_bias.py
-      - ../data/processed/dev
-      - ../data/processed/test
-      - ../data/processed/holdout
+      - ../data/processed/emotions/dev
+      - ../data/processed/emotions/test
+      - ../data/processed/emotions/holdout
     outs:
       - ../data/processed/bias_report.json
 
@@ -50,8 +55,8 @@ stages:
     cmd: python -m scripts.evaluate_models
     deps:
       - scripts/evaluate_models.py
-      - ../data/processed/dev
-      - ../data/processed/test
-      - ../data/processed/holdout
+      - ../data/processed/emotions/dev
+      - ../data/processed/emotions/test
+      - ../data/processed/emotions/holdout
     outs:
       - ../data/processed/evaluation_metrics.json

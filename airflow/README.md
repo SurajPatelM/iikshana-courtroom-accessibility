@@ -80,7 +80,7 @@ Inside the container:
 On your machine (repo root):
 
 - `data/raw/` – Raw downloads (RAVDESS, MELD, EMO-DB, etc.)
-- `data/processed/` – Preprocessed audio, splits, reports
+- `data/processed/` – Reports at top level; emotion splits under `emotions/`, STT under `stt/`
 
 When **`data_acquisition_dag`** runs, it writes directly into `data/raw/`.  
 If `data/raw/` stays empty, inspect the **`download_datasets`** task logs in the Airflow UI and compare the `RAW_DIR` path with your repo.

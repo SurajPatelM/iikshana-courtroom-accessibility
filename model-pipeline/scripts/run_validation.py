@@ -209,7 +209,7 @@ def _log_to_mlflow(
                 "config_id": config_id,
                 "split": split,
                 "inputs_basename": inputs_basename,
-                "data_dir": data_dir or "data/processed",
+                "data_dir": data_dir or "data/processed/emotions",
                 "n_samples": n_samples,
             }
         )

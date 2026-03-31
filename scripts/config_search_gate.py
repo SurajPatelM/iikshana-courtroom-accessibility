@@ -28,6 +28,8 @@ from pathlib import Path
 SEARCH_DIRS = [
     Path("data/model_runs/dev"),
     Path("data/model_runs/test"),
+    Path("data/processed/emotions/dev"),
+    Path("data/processed/emotions/test"),
     Path("data/processed/dev"),
     Path("data/processed/test"),
 ]

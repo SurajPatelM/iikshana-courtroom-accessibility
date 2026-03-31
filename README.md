@@ -269,10 +269,10 @@ For details on DAGs, data layout, and troubleshooting, see `airflow/README.md` a
 
 #### 5.3 Model pipeline (manual, after data pipeline)
 
-The **model pipeline** runs separately from the data pipeline. After the data pipeline has produced processed splits (e.g. under `data/processed/`), trigger the **model pipeline** manually to apply the Gemini model and prompts to that data:
+The **model pipeline** runs separately from the data pipeline. After the data pipeline has produced processed splits (e.g. under `data/processed/emotions/`), trigger the **model pipeline** manually to apply the Gemini model and prompts to that data:
 
 - **Via Airflow**: Run the **`model_pipeline_dag`** from the Airflow UI (manual trigger only; it is not part of `full_pipeline_dag`).
-- **Via CLI**: From repo root, `PYTHONPATH=. python model-pipeline/scripts/model_setup.py --split dev --config-id translation_flash_v1` (uses existing splits dev/test/holdout; add `data/processed/<split>/translation_inputs.csv` to run translation).
+- **Via CLI**: From repo root, `PYTHONPATH=. python model-pipeline/scripts/model_setup.py --split dev --config-id translation_flash_v1` (uses existing splits under `data/processed/emotions/`; add `data/processed/emotions/<split>/translation_inputs.csv` to run translation).
 
 See `model-pipeline/README.md` for Task 1 setup and usage.
 

@@ -108,14 +108,20 @@ def main() -> int:
     """CLI entrypoint: run verification and exit with exit_code."""
     import argparse
     parser = argparse.ArgumentParser(description="Verify preprocessed audio with Gemini API")
-    parser.add_argument("data_dir", nargs="?", default=None, help="Processed data dir (default: from utils.PROCESSED_DIR)")
+    parser.add_argument(
+        "data_dir",
+        nargs="?",
+        default=None,
+        help="Processed data dir (default: data/processed/emotions via PROCESSED_EMOTION_DIR)",
+    )
     parser.add_argument("--max-files", type=int, default=2, help="Max WAV files to send (default: 2)")
     parser.add_argument("--force", action="store_true", help="Run even if RUN_GEMINI_VERIFICATION is not set")
     parser.add_argument("--prefer-split", default="staged", help="Prefer this subdir for WAVs (default: staged)")
     args = parser.parse_args()
 
-    from scripts.utils import PROCESSED_DIR
-    data_dir = Path(args.data_dir) if args.data_dir else PROCESSED_DIR
+    from scripts.utils import PROCESSED_EMOTION_DIR
+
+    data_dir = Path(args.data_dir) if args.data_dir else PROCESSED_EMOTION_DIR
     result = run_verification(
         data_dir=data_dir,
         max_files=args.max_files,

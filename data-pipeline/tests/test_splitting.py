@@ -56,6 +56,8 @@ def test_collect_meta(temp_data_dir, sample_wav_16k):
     assert len(meta) == 1
     assert "speaker_id" in meta[0]
     assert "emotion" in meta[0]
+    assert "dataset" in meta[0]
+    assert "task" in meta[0]
 
 
 def test_run_split_empty_dir(temp_data_dir):

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Inference-style audio preprocessing: 16 kHz mono WAV, loudness normalization, silence trimming.
 Same spec as when sending audio to Gemini/APIs at inference (pipeline and backend use this).
@@ -21,9 +23,27 @@ if str(_PIPELINE_ROOT) not in sys.path:
 import numpy as np
 import soundfile as sf
 
-from scripts.utils import get_logger, load_config, RAW_DIR, PROCESSED_DIR
+from scripts.utils import (
+    get_logger,
+    load_config,
+    RAW_DIR,
+    PROCESSED_EMOTION_DIR,
+    PROCESSED_STT_DIR,
+)
 
 logger = get_logger("preprocess_audio")
+
+
+def _staged_root_for_raw_rel(rel: Path, cfg: dict) -> Path:
+    """Route raw/<dataset>/... to emotions/staged or stt/staged from config keys."""
+    top = rel.parts[0] if rel.parts else ""
+    emotion_keys = set(cfg.get("emotion_datasets", {}) or {})
+    speech_keys = set(cfg.get("multilingual_speech", {}) or {})
+    if top in speech_keys:
+        return PROCESSED_STT_DIR / "staged"
+    if top in emotion_keys:
+        return PROCESSED_EMOTION_DIR / "staged"
+    return PROCESSED_EMOTION_DIR / "staged"
 
 # One-time warning for ffmpeg/video failures so we don't spam thousands of lines
 _ffmpeg_fail_warned = False
@@ -354,12 +374,16 @@ def run_preprocessing(
         raw_root = Path(raw_subdir) if isinstance(raw_subdir, str) else raw_subdir
     else:
         raw_root = RAW_DIR
-    if out_subdir is None:
-        out_subdir = PROCESSED_DIR / "staged"
-    out_subdir = Path(out_subdir)
-    out_subdir.mkdir(parents=True, exist_ok=True)
-
     raw_root = Path(raw_root).resolve()
+
+    routed_outputs = out_subdir is None
+    out_subdir_legacy: Path | None = None
+    if not routed_outputs:
+        out_subdir_legacy = Path(out_subdir)
+        out_subdir_legacy.mkdir(parents=True, exist_ok=True)
+    else:
+        (PROCESSED_EMOTION_DIR / "staged").mkdir(parents=True, exist_ok=True)
+        (PROCESSED_STT_DIR / "staged").mkdir(parents=True, exist_ok=True)
     files = collect_audio_files(raw_root, exts=exts)
     # Log per-folder counts so we can see if MELD/TESS/RAVDESS are found
     try:
@@ -396,7 +420,11 @@ def run_preprocessing(
             logger.info("  progress: %d / %d (%.0f%%)", i + 1, total, 100.0 * (i + 1) / total)
             print("  progress: %d / %d" % (i + 1, total), flush=True)
         rel = fp.relative_to(raw_root)
-        out_path = out_subdir / rel.with_suffix(".wav")
+        if routed_outputs:
+            staged_base = _staged_root_for_raw_rel(rel, cfg)
+            out_path = staged_base / rel.with_suffix(".wav")
+        else:
+            out_path = out_subdir_legacy / rel.with_suffix(".wav")
         try:
             if process_one(
                 fp,

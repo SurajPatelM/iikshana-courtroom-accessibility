@@ -1,0 +1,287 @@
+# Iikshana — Recommended New Datasets
+## Dataset Research & Evaluation Report
+
+---
+
+## Context
+
+Iikshana is a real-time courtroom accessibility system for blind participants. It does **not train models** — it uses Groq Whisper (STT), Groq Llama 3.1 (translation), and Groq-based emotion detection. All datasets are used purely for **offline benchmarking, evaluation, and bias analysis**.
+
+The system's three evaluation needs:
+1. **STT (Speech-to-Text)** → measure Word Error Rate (WER)
+2. **Translation** → measure BLEU / chrF scores
+3. **Emotion detection** → measure F1 across emotion classes
+
+---
+
+## Why Current Datasets Fall Short
+
+| Problem | Current Datasets Affected |
+|---|---|
+| **Class imbalance** (emotion classes not within 10% of each other) | RAVDESS (neutral underrepresented), MELD, SAVEE |
+| **Acted speech** (not naturalistic — inflates benchmark scores) | RAVDESS, TESS, SAVEE, EMO-DB, CREMA-D |
+| **No legal language** (none contain courtroom vocabulary or formal proceedings) | All 7 current datasets |
+| **Casual speech benchmarks** (WER on casual speech ≠ WER on courtroom speech) | Common Voice, LibriSpeech |
+| **Weak translation references** (BLEU computed against informal references) | MELD, RAVDESS |
+
+---
+
+## Recommended New Datasets
+
+---
+
+### 1. MSP-Podcast
+**Category:** Emotion Detection | **Priority:** High
+
+#### What it is
+The largest naturalistic speech emotion dataset in the world. Built from real podcast recordings — not acted speech. Contains 264,705 speaking turns (409 hours) annotated with emotion labels by crowdsourcing workers. Explicitly designed for balanced class distribution.
+
+#### Emotion classes
+Anger, Happiness, Sadness, Disgust, Surprised, Fear, Contempt, Neutral, Other (9 classes)
+
+#### Why it's better than current datasets
+- **Fixes class imbalance directly** — the corpus was built with dynamic thresholds to ensure no emotion class dominates. This directly satisfies the "within 10% of each other" requirement.
+- **Naturalistic speech** — real spontaneous conversations, not studio acting. A witness on the stand expresses emotion spontaneously. MSP-Podcast captures this; RAVDESS does not.
+- **Scale** — 264,000+ utterances vs. ~1,440 in RAVDESS. Bias analysis via Fairlearn `MetricFrame` becomes statistically meaningful rather than based on a few hundred samples.
+- **Commercially usable license** — recorded from podcasts with permissive licenses. Can be used in a product being sold.
+
+#### How to source it
+**License:** Free academic license — requires institutional signature (standard FDP data transfer form)
+
+**Steps:**
+1. Download the license agreement PDF from the website
+2. Have someone with signing authority at your institution sign it
+3. Email the signed form to `msp-lab@utdallas.edu`
+4. They will provide download credentials
+
+**Official link:** `https://ecs.utdallas.edu/research/researchlabs/msp-lab/MSP-Podcast.html`
+
+#### Integration with existing pipeline
+- Add to `data-pipeline/config/datasets.yaml` under `emotion_datasets`
+- Works with existing `preprocess_audio.py` (WAV format, short segments)
+- Immediately improves `detect_bias.py` Fairlearn output quality
+- Fixes the class imbalance anomaly currently flagged by `anomaly_check.py`
+
+---
+
+### 2. AESDD (Acted Emotional Speech Dynamic Database)
+**Category:** Emotion Detection | **Priority:** Medium (use while waiting for MSP-Podcast)
+
+#### What it is
+A publicly available Greek emotional speech dataset with 500+ utterances across 5 actors. English recording platform also available. 5 emotion classes with equal sample counts per class.
+
+#### Emotion classes
+Anger, Disgust, Fear, Happiness, Sadness (5 classes — perfectly balanced)
+
+#### Why it's better than current datasets
+- **Immediately available** — no license, no registration, free `git clone`
+- **Perfectly balanced** — equal samples per class, directly satisfies the 10% constraint
+- Fills the gap while MSP-Podcast license is being processed
+- Replaces EMO-DB's slot (EMO-DB is German — limited relevance for an English courtroom system)
+
+#### How to source it
+```bash
+# Direct download
+git clone http://m3c.web.auth.gr/research/aesdd-speech-emotion-recognition/ data/raw/AESDD
+```
+
+**Official link:** `http://m3c.web.auth.gr/research/aesdd-speech-emotion-recognition/`
+
+**License:** Free for academic and research use
+
+#### Integration with existing pipeline
+- Add to `datasets.yaml` under `emotion_datasets`
+- Standard WAV format — works with existing preprocessing pipeline
+- Can be downloaded and integrated today with no waiting
+
+---
+
+### 3. Oyez — US Supreme Court Oral Arguments
+**Category:** Legal Context + STT Benchmarking | **Priority:** High (strategically most important)
+
+#### What it is
+A structured dataset of every US Supreme Court oral argument ever recorded, with:
+- Full audio recordings (MP3/OGG) for each case
+- Transcripts with speaker identification
+- Audio timestamps aligned to transcript at sentence level
+- Speaker role labels (Justice, Petitioner counsel, Respondent counsel)
+- Case metadata
+
+#### Why it's better than current datasets
+- **The only dataset with real courtroom speech** — every other dataset you use contains casual speech, TV dialogue, or studio recordings. None resemble what the system will actually encounter in production.
+- **Formal legal vocabulary** — attorney arguments, judicial questioning, and witness examination use precise legal language. Benchmarking WER on this tells you how Groq Whisper actually performs on the speech it will encounter.
+- **Speaker-labeled** — allows bias detection by speaker role (does the system perform worse for witnesses vs. attorneys?)
+- **No emotion labels** — this is expected and solvable. Use your existing Groq pipeline to auto-label emotions. This creates a unique evaluation dataset specific to your project.
+- **Product credibility** — "benchmarked on actual Supreme Court proceedings" is a significantly stronger product claim than "benchmarked on TV dialogue."
+
+#### How to source it
+```bash
+# Clone the full dataset (~3.5GB decompressed)
+git clone https://github.com/walkerdb/supreme_court_transcripts data/raw/Oyez
+
+# Audio files are linked in each case JSON under the media_file field
+# Download audio for a specific case:
+# Each transcript JSON has: "media_file": [{"href": "https://...mp3"}]
+```
+
+**Official link:** `https://oyez.org` | `https://github.com/walkerdb/supreme_court_transcripts`
+
+**License:** CC-BY-NC (free for non-commercial academic use)
+
+#### Auto-labeling emotions with Groq
+Since Oyez has no emotion labels, use the existing Groq pipeline:
+```python
+# Pseudo-code using existing pipeline
+for audio_clip in oyez_segments:
+    emotion = groq_client.detect_emotion(audio_clip)
+    transcript = groq_whisper.transcribe(audio_clip)
+    save_with_labels(audio_clip, emotion, transcript)
+```
+This creates a **unique evaluation dataset** — legal speech with machine-labeled emotions — that no other team will have.
+
+#### Integration with existing pipeline
+- Audio segments are already short (sentence-level) — fits 60-second constraint
+- Transcripts available — can directly compute WER for STT benchmarking
+- Speaker IDs available — feeds directly into Fairlearn bias analysis
+
+---
+
+### 4. VoxPopuli
+**Category:** STT Benchmarking (Formal Speech) | **Priority:** Medium
+
+#### What it is
+A large-scale multilingual speech dataset built from European Parliament recordings (2009–2020). Contains formal speech in 23 languages with aligned transcripts.
+
+#### Why it's better than current datasets
+- **Formal register** — European Parliament speeches share the formal vocabulary and measured pace of courtroom proceedings. Much closer to actual courtroom speech than Common Voice (casual crowd-sourced) or LibriSpeech (audiobook reading).
+- **Multilingual** — your system serves non-English speakers in court. VoxPopuli covers the languages most commonly needed: Spanish, French, German, Italian, Polish, Portuguese, and more.
+- **Transcripts included** — direct WER computation against ground truth, no inference needed.
+- **Already in your datasets.yaml** — listed with `url: null`. This is the lowest-effort addition — just fill in the URL.
+
+#### How to source it
+```bash
+# Via Hugging Face (simplest method)
+pip install datasets
+python -c "
+from datasets import load_dataset
+# English subset
+ds = load_dataset('facebook/voxpopuli', 'en', split='train')
+# Add other languages as needed: 'es', 'fr', 'de', 'it', etc.
+"
+```
+
+**Official link:** `https://github.com/facebookresearch/voxpopuli`
+**HuggingFace:** `https://huggingface.co/datasets/facebook/voxpopuli`
+
+**License:** CC0 (public domain — no restrictions)
+
+#### Integration with existing pipeline
+- Already referenced in `datasets.yaml` — just update the URL
+- Use for WER benchmarking of the Groq Whisper STT component
+- Multilingual coverage validates translation pipeline across languages
+
+---
+
+### 5. FLORES-200
+**Category:** Translation Benchmarking | **Priority:** High
+
+#### What it is
+A professionally translated evaluation benchmark specifically designed for machine translation quality measurement. Created by Meta AI. Contains 1,012 sentences translated into 200 languages by professional translators, covering everyday and formal language.
+
+#### Why it's better than current datasets
+- **Professional reference translations** — your current translation BLEU scores are computed against informal references from MELD or RAVDESS. Those references were never designed for translation evaluation. FLORES-200 gives you professionally verified ground truth.
+- **200 languages** — covers every language your system may need to translate in a US courtroom (Spanish, Mandarin, Vietnamese, Arabic, Tagalog, etc.)
+- **Directly comparable to published benchmarks** — FLORES-200 is the standard benchmark for translation models. Your BLEU score becomes a credible, comparable number rather than an internal metric.
+- **Short sentences** — all under 60 seconds when read aloud, fitting your nice-to-have constraint.
+- **Makes your quality gate meaningful** — `config_search_gate.py` enforces a BLEU threshold of 40. With FLORES-200 references, that threshold is grounded in professional translations and directly comparable to industry standards.
+
+#### How to source it
+```bash
+# Via git clone
+git clone https://github.com/facebookresearch/flores data/raw/FLORES
+
+# Or via HuggingFace
+python -c "
+from datasets import load_dataset
+ds = load_dataset('facebook/flores', 'eng_Latn-spa_Latn')  # English to Spanish example
+"
+```
+
+**Official link:** `https://github.com/facebookresearch/flores`
+**HuggingFace:** `https://huggingface.co/datasets/facebook/flores`
+
+**License:** CC-BY-SA 4.0 (free, attribution required)
+
+#### Integration with existing pipeline
+- Feed FLORES-200 source sentences through your Groq Llama translation pipeline
+- Compare outputs against FLORES-200 professional reference translations
+- Compute BLEU/chrF in `run_validation.py` — no code changes needed, just new input data
+- Update `config_search_gate.py` thresholds based on FLORES-200 baseline scores
+
+---
+
+## Summary & Recommendation
+
+| Dataset | Fixes | Priority | Effort to add | Download |
+|---|---|---|---|---|
+| MSP-Podcast | Emotion class imbalance, naturalness | 🔴 High | Email license request | Email `msp-lab@utdallas.edu` |
+| AESDD | Emotion class imbalance (immediate) | 🟡 Medium | Very low | `git clone` |
+| Oyez SCOTUS | Legal context, STT on court speech | 🔴 High | Low | `git clone` |
+| VoxPopuli | STT on formal speech, multilingual | 🟡 Medium | Very low (already in yaml) | HuggingFace |
+| FLORES-200 | Translation BLEU references | 🔴 High | Low | `git clone` |
+
+### Suggested order of implementation
+1. **Start today:** AESDD (`git clone`) + VoxPopuli (fill in yaml URL) + FLORES-200 (`git clone`)
+2. **This week:** Oyez (`git clone` + set up Groq auto-labeling)
+3. **Ongoing:** MSP-Podcast (email license, integrate when approved)
+
+---
+
+## Impact on Pipeline Components
+
+| Pipeline component | Current state | After new datasets |
+|---|---|---|
+| `detect_bias.py` Fairlearn output | Based on imbalanced ~500-sample datasets | Based on 264,000+ balanced samples (MSP-Podcast) |
+| `anomaly_check.py` class balance check | Currently flags imbalance as anomaly | Resolved with MSP-Podcast + AESDD |
+| `run_validation.py` WER measurement | Measured on casual speech | Measured on formal legal speech (Oyez + VoxPopuli) |
+| `run_validation.py` BLEU measurement | Measured against informal references | Measured against professional references (FLORES-200) |
+| `quality_gate.py` thresholds | BLEU > 40 based on informal references | BLEU > 40 grounded in professional translation standard |
+| `config_search_gate.py` | Best config selected on informal BLEU | Best config selected on credible BLEU |
+| Legal speech coverage | Zero | Full (Oyez Supreme Court audio) |
+
+---
+
+## Notes for `datasets.yaml` Integration
+
+```yaml
+# Add under emotion_datasets:
+MSP-Podcast:
+  url: null  # provided after license approval
+  emotion_classes: 9
+  format: wav
+  notes: "Requires institutional license — email msp-lab@utdallas.edu"
+
+AESDD:
+  url: "http://m3c.web.auth.gr/research/aesdd-speech-emotion-recognition/"
+  emotion_classes: 5
+  format: wav
+  notes: "Free, no license required. git clone directly."
+
+Oyez:
+  url: "https://github.com/walkerdb/supreme_court_transcripts"
+  emotion_classes: null  # auto-label using Groq pipeline
+  format: mp3
+  notes: "Real courtroom audio. Emotion labels must be generated via Groq."
+
+# Update under multilingual_speech:
+voxpopuli:
+  url: "https://huggingface.co/datasets/facebook/voxpopuli"
+  format: wav
+  notes: "Formal speech. Use for WER benchmarking across languages."
+
+# Add under translation_benchmarks (new section):
+FLORES-200:
+  url: "https://github.com/facebookresearch/flores"
+  languages: 200
+  notes: "Professional translation references. Use for BLEU evaluation."
+```

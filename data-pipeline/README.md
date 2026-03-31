@@ -116,7 +116,10 @@ Data lives at **repo root**:
 ```text
 data/
 ├── raw/          # Raw downloads (RAVDESS, MELD, EMO-DB, etc.)
-├── processed/    # Preprocessed audio + splits + reports
+├── processed/
+│   ├── emotions/ # Emotion benchmarks: staged + dev/test/holdout
+│   ├── stt/      # Speech-only corpora: same split layout
+│   └── *.json    # quality_report, bias_report, anomaly_report, …
 └── legal_glossary/
 ```
 
@@ -127,7 +130,7 @@ cd data-pipeline
 
 # Track data artefacts
 dvc add ../data/raw/RAVDESS ../data/raw/IEMOCAP
-dvc add ../data/processed/dev ../data/processed/test ../data/processed/holdout
+dvc add ../data/processed/emotions/dev ../data/processed/emotions/test ../data/processed/emotions/holdout
 dvc add ../data/legal_glossary
 git add *.dvc .gitignore
 git commit -m "Track pipeline data with DVC"

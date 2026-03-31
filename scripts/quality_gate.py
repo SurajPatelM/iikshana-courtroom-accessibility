@@ -31,7 +31,11 @@ METRICS_CANDIDATES = [
     Path("data/model_runs/dev/validation_metrics.json"),
     Path("data/model_runs/test/validation_metrics.json"),
     Path("data/model_runs/holdout/validation_metrics.json"),
-    # legacy / data-pipeline output
+    # emotion pipeline splits (current layout)
+    Path("data/processed/emotions/dev/validation_metrics.json"),
+    Path("data/processed/emotions/test/validation_metrics.json"),
+    Path("data/processed/emotions/holdout/validation_metrics.json"),
+    # legacy flat processed layout
     Path("data/processed/dev/validation_metrics.json"),
     Path("data/processed/test/validation_metrics.json"),
     Path("data/processed/holdout/validation_metrics.json"),
