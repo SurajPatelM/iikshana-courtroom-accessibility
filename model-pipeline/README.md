@@ -18,7 +18,18 @@ This directory is the **model-development** layer: translation and evaluation on
 | **`backend/src/services/groq_stt_service.py`**   | Groq Whisper STT for **`build_translation_inputs_from_audio.py`** (`GROQ_API_KEY`).                                                                                                          |
 | **`model-pipeline/scripts/*.py`**                | Build eval tables, search configs, validate, sensitivity, bias, package, push.                                                                                                               |
 
-**Typical default config:** `translation_flash_v1` (Groq + baseline prompts; see `config/models/translation_flash_v1.yaml`).
+### Translation configs compared (multi-provider)
+
+These YAMLs live under **`config/models/`**. They extend the original Groq “flash” prompt variants with **Google Gemini**, **Groq Llama 3.3 70B**, and **Hugging Face** Marian NMT for side-by-side evaluation (`run_config_search.py`). **Secrets:** `GEMINI_API_KEY` (Gemini), `GROQ_API_KEY` (Groq), `HF_API_TOKEN` (Hugging Face Inference API).
+
+| Config ID | Provider | Model | Parameters | Type |
+| --- | --- | --- | --- | --- |
+| `translation_gemini_flash_compare` | Google Gemini | `gemini-2.0-flash` | Not publicly disclosed | Large multimodal LLM |
+| `translation_groq_llama70b_v1` | Groq | `llama-3.3-70b-versatile` | 70B | Open-weight LLM (Meta) |
+| `translation_hf_v1` | Hugging Face | `Helsinki-NLP/opus-mt-en-es` | ~77M | Marian NMT (encoder–decoder) |
+| `translation_hf_opus_tc_big_v1` | Hugging Face | `Helsinki-NLP/opus-mt-tc-big-en-es` | ~230M | Marian NMT (larger variant) |
+
+**Selected default:** On recent dev evals, **`translation_groq_llama70b_v1`** scored highest on corpus **BLEU** versus the other configs above, so it is the **operational default**: `translate_text` in `gemini_translation.py`, **`model_setup.py`**’s default `--config-id`, Airflow **`mode_setup`** (via **`best_config_id`** in `data/processed/<split>/config_search_results.json`, with param fallback), and the expanded config list in the Airflow DAGs. Re-run **`run_config_search.py`** when you add configs or change data; older **`translation_flash_*`** YAMLs remain available for prompt ablations.
 
 ---
 
@@ -54,7 +65,7 @@ This directory is the **model-development** layer: translation and evaluation on
 
 ## 3. Hyperparameter tuning
 
-**Meaning here:** choosing among **discrete YAML configs** and decoding parameters, not backprop. Each file under **`config/models/`** is a candidate (e.g. `translation_flash_v1`, `translation_flash_glossary`, `translation_flash_court`, `translation_flash_short_prompt`, `translation_flash_temp03`).
+**Meaning here:** choosing among **discrete YAML configs** and decoding parameters, not backprop. Each file under **`config/models/`** is a candidate (e.g. `translation_flash_v1`, `translation_flash_glossary`, …, plus **`translation_gemini_flash_compare`**, **`translation_groq_llama70b_v1`**, **`translation_hf_v1`**, **`translation_hf_opus_tc_big_v1`** — see the comparison table under **Overview** above).
 
 **Tool:** **`run_config_search.py`**
 
@@ -78,6 +89,14 @@ python model-pipeline/scripts/run_config_search.py --split dev \
   --inputs-basename court_translation_inputs \
   --configs translation_flash_v1,translation_flash_glossary \
   --metric bleu --delay 0.5
+
+# Multi-provider comparison; write under processed for Airflow model_setup
+export GEMINI_API_KEY=...   # Gemini configs
+export HF_API_TOKEN=...     # Hugging Face configs
+python model-pipeline/scripts/run_config_search.py --split dev \
+  --configs translation_gemini_flash_compare,translation_groq_llama70b_v1,translation_hf_v1,translation_hf_opus_tc_big_v1 \
+  --metric bleu --delay 0.5 \
+  --output data/processed/dev/config_search_results.json
 ```
 
 ---
