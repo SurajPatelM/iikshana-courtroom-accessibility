@@ -1,0 +1,26 @@
+# Larger OPUS-MT en→es Marian model for comparison with translation_hf_v1 (requires HF_API_TOKEN).
+id: translation_hf_opus_tc_big_v1
+provider: huggingface
+model_name: Helsinki-NLP/opus-mt-tc-big-en-es
+task_type: translation
+
+prompt_template_id: translation_baseline
+temperature: 0.0
+top_p: 1.0
+max_output_tokens: 256
+
+input_fields:
+  - source_text
+  - source_language
+  - target_language
+
+output_schema:
+  type: text
+  field_name: translated_text
+
+parsing:
+  type: plain_text
+
+postprocessing:
+  normalize_whitespace: true
+  apply_legal_glossary_check: true

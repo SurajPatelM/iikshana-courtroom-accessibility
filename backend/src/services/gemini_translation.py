@@ -80,14 +80,15 @@ def _get_text_client(config: TranslationModelConfig):
     Return a text-generation client based on the provider.
 
     Supported providers:
-    - vertex-ai / gemini / huggingface: Hugging Face Inference API (current default)
-    - groq: Groq-hosted models via OpenAI-compatible API (disabled by default)
+    - gemini / vertex-ai / google: Google Gemini API (``GEMINI_API_KEY``)
+    - huggingface: Hugging Face Inference API (``HF_API_TOKEN``)
+    - groq: Groq OpenAI-compatible API (``GROQ_API_KEY``)
     """
     provider = config.provider.lower()
-    # For now, route vertex-ai / gemini / huggingface configs through HuggingFaceClient.
-    if provider in {"vertex-ai", "gemini", "huggingface"}:
+    if provider in {"gemini", "vertex-ai", "google"}:
+        return GeminiClient(model_name=config.model_name)
+    if provider == "huggingface":
         return HuggingFaceClient(model_name=config.model_name)
-    # Groq support is present but not used unless explicitly configured.
     if provider == "groq":
         return GroqClient(model_name=config.model_name)
     raise ValueError(f"Unsupported provider for translation: {config.provider}")
@@ -98,7 +99,7 @@ def translate_text(
     source_language: str,
     target_language: str,
     *,
-    config_id: str = "translation_flash_v1",
+    config_id: str = "translation_groq_llama70b_v1",
     temperature: Optional[float] = None,
     top_p: Optional[float] = None,
     max_output_tokens: Optional[int] = None,

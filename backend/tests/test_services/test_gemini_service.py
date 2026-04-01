@@ -158,6 +158,21 @@ class TestHuggingFaceClient:
                 result = client.generate_text("Translate this")
                 assert result == "Texto traducido"
 
+    def test_generate_text_prefers_translation_text(self):
+        """MarianMT / translation models return translation_text from Inference API."""
+        with patch.dict("os.environ", {"HF_API_TOKEN": "fake-token"}):
+            with patch("src.services.hf_service.requests.post") as mock_post:
+                mock_response = MagicMock()
+                mock_response.json.return_value = [
+                    {"translation_text": "Texto desde API de traducción"}
+                ]
+                mock_post.return_value = mock_response
+
+                from src.services.hf_service import HuggingFaceClient
+                client = HuggingFaceClient(model_name="Helsinki-NLP/opus-mt-en-es")
+                result = client.generate_text("Translate this")
+                assert result == "Texto desde API de traducción"
+
     def test_system_prompt_prepended(self):
         """System prompt must be prepended to user prompt for HF API."""
         with patch.dict("os.environ", {"HF_API_TOKEN": "fake-token"}):

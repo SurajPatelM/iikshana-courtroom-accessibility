@@ -66,8 +66,17 @@ class HuggingFaceClient:
         response.raise_for_status()
         data = response.json()
 
-        # Most text-generation models return a list with generated_text
-        if isinstance(data, list) and data and "generated_text" in data[0]:
-            return str(data[0]["generated_text"]).strip()
+        # Translation models (MarianMT, NLLB, etc.) often return translation_text
+        if isinstance(data, list) and data and isinstance(data[0], dict):
+            row = data[0]
+            if "translation_text" in row:
+                return str(row["translation_text"]).strip()
+            if "generated_text" in row:
+                return str(row["generated_text"]).strip()
+        if isinstance(data, dict):
+            if "translation_text" in data:
+                return str(data["translation_text"]).strip()
+            if "generated_text" in data:
+                return str(data["generated_text"]).strip()
         return str(data)
 

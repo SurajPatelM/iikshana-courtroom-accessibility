@@ -54,7 +54,10 @@ DEFAULT_CONFIG_IDS = [
     "translation_flash_court",        # Groq + court-phrase equivalences (better on court_translation_inputs)
     "translation_flash_short_prompt", # Groq + minimal prompt
     "translation_flash_temp03",       # Groq + baseline, temp=0.3
-    "translation_hf_v1",              # HuggingFace opus-mt (if available)
+    "translation_hf_v1",              # HuggingFace opus-mt-en-es (if HF_API_TOKEN set)
+    "translation_hf_opus_tc_big_v1",  # HuggingFace opus-mt-tc-big-en-es (if HF_API_TOKEN set)
+    "translation_gemini_flash_compare",  # Gemini 2.0 Flash (if GEMINI_API_KEY set)
+    "translation_groq_llama70b_v1",    # Groq Llama 3.3 70B (if GROQ_API_KEY set)
 ]
 
 
@@ -90,7 +93,7 @@ def _parse_args() -> argparse.Namespace:
         "--output",
         type=str,
         default="",
-        help="Write results JSON here (default: data/processed/<split>/config_search_results.json).",
+        help="Write results JSON here (default: data/model_runs/<split>/config_search_results.json). Use data/processed/<split>/config_search_results.json for Airflow model_setup.",
     )
     p.add_argument(
         "--no-glossary",

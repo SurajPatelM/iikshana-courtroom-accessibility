@@ -1,0 +1,27 @@
+# Google Gemini — for side-by-side comparison with Groq configs (requires GEMINI_API_KEY).
+id: translation_gemini_flash_compare
+provider: gemini
+model_name: gemini-2.0-flash
+task_type: translation
+
+system_prompt_id: translation_baseline_system
+prompt_template_id: translation_baseline_user
+temperature: 0.0
+top_p: 1.0
+max_output_tokens: 256
+
+input_fields:
+  - source_text
+  - source_language
+  - target_language
+
+output_schema:
+  type: text
+  field_name: translated_text
+
+parsing:
+  type: plain_text
+
+postprocessing:
+  normalize_whitespace: true
+  apply_legal_glossary_check: true
