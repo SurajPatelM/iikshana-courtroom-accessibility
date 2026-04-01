@@ -17,6 +17,8 @@ modify other pipeline code.
     disparity list, mitigation recommendations.
   - ``model_bias_by_dataset_<config_id>.png`` — optional bar chart (if ``dataset`` is in
     ``--group-cols`` and aggregation is possible).
+  - **MLflow** (unless ``--no-mlflow``): experiment ``iikshana-translation``, run name
+    ``bias_<config_id>_<split>_<group_suffix>``; metrics prefixed ``bias_*``; JSON/PNG artifacts.
 
 **Examples** (repo root, ``PYTHONPATH=.``)::
 
@@ -32,6 +34,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import os
 import re
 import sys
 import time
@@ -129,7 +132,98 @@ def _parse_args() -> argparse.Namespace:
         help="Flag slices where |overall exact_match - group exact_match| > this.",
     )
     p.add_argument("--no-plots", action="store_true", help="Skip PNG bar chart.")
+    p.add_argument(
+        "--no-mlflow",
+        action="store_true",
+        help="Skip MLflow logging (default: log when mlflow is installed).",
+    )
     return p.parse_args()
+
+
+def _build_bias_mlflow_metrics(payload: Dict[str, Any]) -> Dict[str, float]:
+    """Flatten bias report fields to MLflow scalars (prefix bias_*)."""
+    metrics: Dict[str, float] = {
+        "bias_overall_exact_match": float(payload.get("overall_exact_match_accuracy", 0.0)),
+        "bias_n_samples": float(payload.get("n_samples", 0)),
+        "bias_disparity_threshold": float(payload.get("disparity_threshold_exact_match", 0.0)),
+    }
+    disparities = payload.get("disparities") or []
+    metrics["bias_disparity_count"] = float(len(disparities))
+    gaps = [
+        float(d["absolute_gap"])
+        for d in disparities
+        if isinstance(d, dict) and "absolute_gap" in d
+    ]
+    if gaps:
+        metrics["bias_max_disparity_gap"] = max(gaps)
+
+    per_group = payload.get("fairlearn_metricframe") or {}
+    overall = per_group.get("overall") if isinstance(per_group, dict) else None
+    if isinstance(overall, dict):
+        if "exact_match" in overall:
+            metrics["bias_fairlearn_exact_match"] = float(overall["exact_match"])
+        if "mean_sentence_bleu" in overall:
+            metrics["bias_fairlearn_mean_sentence_bleu"] = float(overall["mean_sentence_bleu"])
+
+    records = per_group.get("by_group") if isinstance(per_group, dict) else None
+    if isinstance(records, list):
+        ems = [
+            float(r["exact_match"])
+            for r in records
+            if isinstance(r, dict) and "exact_match" in r
+        ]
+        if ems:
+            metrics["bias_min_slice_exact_match"] = min(ems)
+            metrics["bias_max_slice_exact_match"] = max(ems)
+
+    return metrics
+
+
+def _log_bias_to_mlflow(
+    *,
+    args: argparse.Namespace,
+    group_suffix: str,
+    report_path: Path,
+    plot_path: Optional[Path],
+    payload: Dict[str, Any],
+) -> None:
+    if args.no_mlflow:
+        return
+    try:
+        import mlflow
+    except ImportError:
+        print("[info] mlflow not installed; skipping MLflow logging.")
+        return
+
+    metrics = _build_bias_mlflow_metrics(payload)
+    tracking_uri = os.environ.get("MLFLOW_TRACKING_URI", "file:./mlruns")
+    run_name = f"bias_{args.config_id}_{args.split}_{group_suffix}"
+    if len(run_name) > 200:
+        run_name = run_name[:190] + "_trunc"
+
+    try:
+        mlflow.set_tracking_uri(tracking_uri)
+        mlflow.set_experiment("iikshana-translation")
+        with mlflow.start_run(run_name=run_name):
+            mlflow.log_params(
+                {
+                    "config_id": args.config_id,
+                    "split": args.split,
+                    "bias_mode": str(payload.get("mode", "")),
+                    "bias_group_suffix": group_suffix,
+                    "bias_group_cols": ",".join(payload.get("group_columns") or []),
+                    "inputs_basename": args.inputs_basename,
+                    "run_type": "model_bias_detection",
+                }
+            )
+            mlflow.log_metrics(metrics)
+            if report_path.is_file():
+                mlflow.log_artifact(str(report_path), artifact_path="bias_report")
+            if plot_path is not None and plot_path.is_file():
+                mlflow.log_artifact(str(plot_path), artifact_path="bias_plots")
+        print(f"[info] MLflow: logged bias run '{run_name}' to {tracking_uri}")
+    except Exception as exc:
+        print(f"[WARN] MLflow logging failed (continuing): {exc}")
 
 
 def _run_api_predictions(config_id: str, features: pd.DataFrame, delay: float) -> List[str]:
@@ -256,6 +350,14 @@ def main() -> None:
     }
     write_report_json(out_path, payload)
     print(f"[info] Wrote {out_path}")
+
+    _log_bias_to_mlflow(
+        args=args,
+        group_suffix=group_suffix,
+        report_path=out_path,
+        plot_path=plot_path,
+        payload=payload,
+    )
 
 
 if __name__ == "__main__":

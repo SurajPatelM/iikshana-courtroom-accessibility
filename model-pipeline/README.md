@@ -54,7 +54,7 @@ These YAMLs live under **`config/models/`**. They extend the original Groq “fl
 | **`model_setup.py`**                                           | Full translation pass for a chosen **`--config-id`** (e.g. best from search); supports STT path when using manifest + WAVs.                                         | **`translation_predictions_<config_id>.csv`** (predictions for bias / reporting).    |
 | **`run_sensitivity_analysis.py`**                              | Sensitivity of metrics to **decoding knobs** and **input strata** (§5).                                                                                             | **`sensitivity_analysis.json`**                                                      |
 | **`run_translation_bias_analysis.py`**                         | Fairlearn **group** metrics (exact match, etc.).                                                                                                                    | **`translation_bias_metrics_<config>.json`**                                         |
-| **`run_model_bias_detection.py`**                              | **Sliced** metrics, disparity vs threshold, mitigation narrative.                                                                                                   | **`model_bias_report_<config>__<group_suffix>.json`** (+ optional PNG).              |
+| **`run_model_bias_detection.py`**                              | **Sliced** metrics, disparity vs threshold, mitigation narrative; **MLflow** scalars (`bias_*`) + report/plot artifacts (use **`--no-mlflow`** to skip).           | **`model_bias_report_<config>__<group_suffix>.json`** (+ optional PNG).              |
 | **`build_model_package.py`** / **`push_model_to_registry.py`** | Tarball (config + prompts + manifest) and **GCP Artifact Registry** upload.                                                                                         | `model-pipeline/artifacts/*.tar.gz`, registry package version.                       |
 
 ### 2.3 Tests
@@ -111,6 +111,8 @@ When validation runs, it can log to **MLflow**:
 - **Tracking URI:** env **`MLFLOW_TRACKING_URI`**, or default **`file:./mlruns`** (local store under repo root)
 - **Run name pattern:** `{config_id}_{split}_{inputs_basename}`
 - **Logged:** params (`config_id`, `split`, `inputs_basename`, `n_samples`, …), metrics (BLEU, chrF, exact match, …), and **artifacts** (e.g. metric plots) when files exist
+
+**Model bias detection (`run_model_bias_detection.py`):** same experiment and tracking URI. Run names look like **`bias_<config_id>_<split>_<group_suffix>`** with param **`run_type=model_bias_detection`**. Metrics include **`bias_overall_exact_match`**, **`bias_fairlearn_exact_match`**, **`bias_fairlearn_mean_sentence_bleu`** (when Fairlearn + sacrebleu run), **`bias_disparity_count`**, **`bias_max_disparity_gap`**, slice min/max exact match, and **`bias_n_samples`**. Artifacts: the JSON report under **`bias_report/`** and optional PNG under **`bias_plots/`**. Pass **`--no-mlflow`** to disable.
 
 Use the MLflow UI against your tracking URI to compare runs over time.
 
@@ -171,7 +173,7 @@ Translation **model** fairness is measured on **slices** of the evaluation table
 | Tool                                   | Role                                                                                                                                                                                                                                                                                           |
 | -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **`run_translation_bias_analysis.py`** | Fairlearn-oriented **group** analysis; **exact match** and related views; writes **`translation_bias_metrics_<config>.json`**.                                                                                                                                                                 |
-| **`run_model_bias_detection.py`**      | **Sliced** metrics (exact match, mean sentence BLEU when **`sacrebleu`** is installed), **disparity** vs **`--disparity-threshold`**, mitigation text; outputs **`model_bias_report_<config_id>__<group_suffix>.json`** and optional **`model_bias_by_dataset_<config>__<group_suffix>.png`**. |
+| **`run_model_bias_detection.py`**      | **Sliced** metrics (exact match, mean sentence BLEU when **`sacrebleu`** is installed), **disparity** vs **`--disparity-threshold`**, mitigation text; outputs **`model_bias_report_<config_id>__<group_suffix>.json`** and optional **`model_bias_by_dataset_<config>__<group_suffix>.png`**. Logs the same metrics to **MLflow** (experiment **`iikshana-translation`**) unless **`--no-mlflow`**. |
 
 **Modes**
 
