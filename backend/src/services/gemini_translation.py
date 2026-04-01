@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict
+from typing import Dict, Optional
 
 import yaml
 
@@ -99,12 +99,18 @@ def translate_text(
     target_language: str,
     *,
     config_id: str = "translation_flash_v1",
+    temperature: Optional[float] = None,
+    top_p: Optional[float] = None,
+    max_output_tokens: Optional[int] = None,
 ) -> str:
     """
     Translate text from ``source_language`` to ``target_language`` using the configured model.
 
     Supports system + user prompts when config has system_prompt_id; otherwise
     uses a single user prompt (prompt_template_id).
+
+    Optional ``temperature``, ``top_p``, and ``max_output_tokens`` override the
+    YAML config for sweeps and sensitivity analysis.
     """
 
     config = _load_model_config(config_id)
@@ -119,11 +125,18 @@ def translate_text(
         system_prompt = _load_prompt_template(config.system_prompt_id)
 
     client = _get_text_client(config)
+    temp = config.temperature if temperature is None else float(temperature)
+    tp = config.top_p if top_p is None else float(top_p)
+    max_tok = (
+        config.max_output_tokens
+        if max_output_tokens is None
+        else int(max_output_tokens)
+    )
     return client.generate_text(
         user_prompt,
         system_prompt=system_prompt,
-        temperature=config.temperature,
-        top_p=config.top_p,
-        max_output_tokens=config.max_output_tokens,
+        temperature=temp,
+        top_p=tp,
+        max_output_tokens=max_tok,
     )
 
