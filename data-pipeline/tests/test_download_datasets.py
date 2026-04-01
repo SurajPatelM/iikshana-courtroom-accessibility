@@ -1,4 +1,6 @@
 """Unit tests for download_datasets: checksums, unzip, and config-driven download logic."""
+import io
+import tarfile
 import zipfile
 from pathlib import Path
 
@@ -10,6 +12,7 @@ sys.path.insert(0, str(PIPELINE_ROOT))
 
 from scripts.download_datasets import (
     compute_sha256,
+    extract_if_needed,
     unzip_if_needed,
     download_datasets,
 )
@@ -73,6 +76,53 @@ def test_unzip_if_needed_zip_custom_out_dir(temp_data_dir):
     out = unzip_if_needed(zip_path, out_dir=custom_out)
     assert out == custom_out
     assert (custom_out / "x.txt").read_text() == "x"
+
+
+def _write_tar_gz(path: Path, members: dict[str, bytes]) -> None:
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:gz") as tf:
+        for name, data in members.items():
+            ti = tarfile.TarInfo(name=name)
+            ti.size = len(data)
+            tf.addfile(ti, io.BytesIO(data))
+    path.write_bytes(buf.getvalue())
+
+
+def test_extract_if_needed_non_archive(temp_data_dir):
+    """Non-archive returns path.parent without creating extract dir."""
+    f = temp_data_dir / "readme.txt"
+    f.write_text("x")
+    out = extract_if_needed(f)
+    assert out == temp_data_dir
+
+
+def test_extract_if_needed_tar_gz(temp_data_dir):
+    """tar.gz extracts to default or custom out_dir."""
+    tgz = temp_data_dir / "bundle.tar.gz"
+    _write_tar_gz(tgz, {"a/b.txt": b"hello"})
+    out = extract_if_needed(tgz)
+    assert out == temp_data_dir / "bundle"
+    assert (out / "a" / "b.txt").read_bytes() == b"hello"
+
+    tgz2 = temp_data_dir / "two.tar.gz"
+    _write_tar_gz(tgz2, {"x.txt": b"y"})
+    custom = temp_data_dir / "extracted_here"
+    out2 = extract_if_needed(tgz2, out_dir=custom)
+    assert out2 == custom
+    assert (custom / "x.txt").read_bytes() == b"y"
+
+
+def test_extract_if_needed_tgz(temp_data_dir):
+    """Short .tgz suffix is handled."""
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:gz") as tf:
+        ti = tarfile.TarInfo(name="only.txt")
+        ti.size = 2
+        tf.addfile(ti, io.BytesIO(b"ok"))
+    path = temp_data_dir / "tiny.tgz"
+    path.write_bytes(buf.getvalue())
+    out = extract_if_needed(path, out_dir=temp_data_dir / "out")
+    assert (out / "only.txt").read_bytes() == b"ok"
 
 
 def test_download_datasets_empty_config(monkeypatch):

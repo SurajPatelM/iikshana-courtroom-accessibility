@@ -55,7 +55,10 @@ multilingual_speech:
   voxpopuli:
     url: null
   librispeech:
-    url: null
+    # LibriSpeech test-clean subset (small ASR corpus for STT branch)
+    # Source: http://www.openslr.org/12
+    url: "https://openslr.elda.org/resources/12/test-clean.tar.gz"
+    format: flac
     checksum: null
 
 # Pipeline settings

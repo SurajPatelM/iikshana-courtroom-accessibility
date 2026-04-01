@@ -2,6 +2,7 @@
 Download emotion and speech datasets; validate checksums; store in data/raw/ with DVC tracking.
 """
 import hashlib
+import tarfile
 import zipfile
 from pathlib import Path
 
@@ -50,16 +51,54 @@ def download_file(url: str, dest: Path, validate_checksum: str | None = None) ->
         return False
 
 
-def unzip_if_needed(path: Path, out_dir: Path | None = None) -> Path:
-    """Unzip if path is a zip file; return directory containing contents."""
-    if not path.suffix.lower() == ".zip":
+def _archive_kind(path: Path) -> str | None:
+    """Return 'zip', 'tar_gz', 'tgz', 'tar', or None."""
+    name = path.name.lower()
+    if name.endswith(".zip"):
+        return "zip"
+    if name.endswith(".tar.gz"):
+        return "tar_gz"
+    if name.endswith(".tgz"):
+        return "tgz"
+    if name.endswith(".tar"):
+        return "tar"
+    return None
+
+
+def extract_if_needed(path: Path, out_dir: Path | None = None) -> Path:
+    """
+    Extract .zip, .tar, .tar.gz, or .tgz into out_dir (or a sibling folder derived from the archive name).
+    Non-archives: no-op, return path.parent.
+    """
+    path = Path(path)
+    kind = _archive_kind(path)
+    if kind is None:
         return path.parent
-    out_dir = out_dir or path.parent / path.stem
+
+    if kind == "zip":
+        out_dir = out_dir or path.parent / path.stem
+    elif kind == "tar_gz":
+        out_dir = out_dir or path.parent / path.name[: -len(".tar.gz")]
+    elif kind == "tgz":
+        out_dir = out_dir or path.parent / path.name[: -len(".tgz")]
+    else:  # tar
+        out_dir = out_dir or path.parent / path.stem
+
     out_dir.mkdir(parents=True, exist_ok=True)
-    with zipfile.ZipFile(path, "r") as zf:
-        zf.extractall(out_dir)
+    if kind == "zip":
+        with zipfile.ZipFile(path, "r") as zf:
+            zf.extractall(out_dir)
+    else:
+        mode = "r:gz" if kind in ("tar_gz", "tgz") else "r:"
+        with tarfile.open(path, mode) as tf:
+            tf.extractall(out_dir)
     logger.info("Extracted %s -> %s", path.name, out_dir)
     return out_dir
+
+
+def unzip_if_needed(path: Path, out_dir: Path | None = None) -> Path:
+    """Backward-compatible alias: extract .zip (or delegate to extract_if_needed)."""
+    return extract_if_needed(path, out_dir)
 
 
 def download_datasets(datasets: list[str] | None = None) -> dict[str, bool]:
@@ -87,11 +126,12 @@ def download_datasets(datasets: list[str] | None = None) -> dict[str, bool]:
         if dest.exists() and meta.get("checksum"):
             if compute_sha256(dest) == meta["checksum"]:
                 logger.info("Already present and valid: %s", dest)
+                extract_if_needed(dest, raw_dir / "extracted")
                 results[name] = True
                 continue
         ok = download_file(url, dest, meta.get("checksum"))
-        if ok and fname.endswith(".zip"):
-            unzip_if_needed(dest, raw_dir / "extracted")
+        if ok and _archive_kind(dest) is not None:
+            extract_if_needed(dest, raw_dir / "extracted")
         results[name] = ok
     return results
 
