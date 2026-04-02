@@ -35,13 +35,13 @@ def _run_evaluation(**kwargs):
     import sys as _sys
     # Run validation on dev split with default config
     _sys.argv = [
-        "run_validation.py",
-        "--split", "dev",
-        "--config-id", "translation_flash_court",
-        "--inputs-basename", "translation_inputs",
-        "--no-plots",
-        "--max-rows", "20",
-        "--delay", "0.5",
+    "run_validation.py",
+    "--split", "dev",
+    "--configs", "translation_flash_court",
+    "--inputs-basename", "translation_inputs",
+    "--no-plots",
+    "--max-rows", "20",
+    "--delay", "0.5",
     ]
     run_validation_main()
 
