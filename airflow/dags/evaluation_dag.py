@@ -9,15 +9,28 @@ from airflow.operators.python import PythonOperator
 
 import sys
 from pathlib import Path
-PIPELINE_ROOT = Path(__file__).resolve().parent.parent
-if str(PIPELINE_ROOT) not in sys.path:
-    sys.path.insert(0, str(PIPELINE_ROOT))
+
+# Resolve pipeline root — works both locally and inside Docker (/workspace mount)
+_DAG_DIR = Path(__file__).resolve().parent
+for _candidate in [
+    Path("/workspace/data-pipeline"),
+    _DAG_DIR.parent / "data-pipeline",
+    _DAG_DIR.parent.parent / "data-pipeline",
+]:
+    if _candidate.exists() and (_candidate / "scripts" / "utils.py").exists():
+        if str(_candidate) not in sys.path:
+            sys.path.insert(0, str(_candidate))
+        break
 
 
 def _run_evaluation(**kwargs):
     from scripts.evaluate_models import run_evaluation
     from scripts.utils import PROCESSED_DIR
-    return run_evaluation(data_dir=PROCESSED_DIR, metrics_path=PROCESSED_DIR / "evaluation_metrics.json", use_live_apis=False)
+    return run_evaluation(
+        data_dir=PROCESSED_DIR,
+        metrics_path=PROCESSED_DIR / "evaluation_metrics.json",
+        use_live_apis=False,
+    )
 
 
 _default_args = {
