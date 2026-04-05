@@ -11,13 +11,19 @@ Run: ``PYTHONPATH=. streamlit run demo/streamlit_expo_app.py``
 
 from __future__ import annotations
 
+import asyncio
 import base64
+import json
 import sys
 import tempfile
+import threading
 import time
 from pathlib import Path
+from typing import List, Optional
 
 import streamlit as st
+import websockets
+from websockets.exceptions import ConnectionClosedError
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
@@ -43,7 +49,14 @@ from demo.pipeline_ingest import VALID_SPLITS, ingest_expo_recording
 POLL_SEC = 12
 MAX_WAIT_SEC = 45 * 60
 
+# WebSocket configuration
+WS_URL = "ws://localhost:8000/ws/audio"
+
 # ── Themed CSS ────────────────────────────────────────────────────────────────
+
+CUSTOM_CSS = """
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=Inter:wght@300;400;500;600&display=swap');
 
 CUSTOM_CSS = """
 <style>
@@ -140,6 +153,40 @@ CUSTOM_CSS = """
     margin-bottom: 0.8rem;
 }
 
+/* ── Transcript display ─── */
+.transcript-card {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 16px;
+    padding: 1.5rem;
+    margin-bottom: 1rem;
+    backdrop-filter: blur(4px);
+    position: relative;
+    z-index: 1;
+}
+.transcript-card .speaker-label {
+    font-family: 'Inter', sans-serif;
+    font-weight: 600;
+    font-size: 0.8rem;
+    color: #4ea8de;
+    margin-bottom: 0.5rem;
+}
+.transcript-card .original-text {
+    font-family: 'Inter', sans-serif;
+    font-weight: 400;
+    font-size: 1rem;
+    color: #e0e0e0;
+    margin-bottom: 0.5rem;
+}
+.transcript-card .translated-text {
+    font-family: 'Inter', sans-serif;
+    font-weight: 500;
+    font-size: 1rem;
+    color: #c9a84c;
+    border-left: 3px solid #c9a84c;
+    padding-left: 1rem;
+}
+
 /* ── Streamlit widget overrides ─── */
 .stSelectbox > div > div,
 .stNumberInput > div > div > input {
@@ -212,32 +259,143 @@ HERO_HTML = """
 </div>
 """
 
-FOOTER_HTML = """
-<div class="footer">
-    <p>⚖️ IIKSHANA COURTROOM ACCESSIBILITY &nbsp;·&nbsp; Empowering equal access to justice through audio AI</p>
-</div>
-"""
+
+# ── WebSocket and Transcript Display Functions ───────────────────────────
+
+class TranscriptDisplay:
+    """Manages real-time transcript display with WebSocket communication."""
+
+    def __init__(self):
+        self.transcripts: List[dict] = []
+        self.websocket = None
+        self.connected = False
+        self.status_message = ""
+
+    async def connect_websocket(self) -> None:
+        """Connect to the backend WebSocket."""
+        try:
+            self.websocket = await websockets.connect(WS_URL)
+            self.connected = True
+            self.status_message = "Connected to backend"
+
+            # Send initial session configuration
+            config_message = {
+                "type": "config",
+                "config": {
+                    "speaker_diarization": True,
+                    "source_language": "en",
+                    "target_language": "es",
+                    "config_id": "translation_flash_court"
+                }
+            }
+            await self.websocket.send(json.dumps(config_message))
+
+        except Exception as e:
+            self.connected = False
+            self.status_message = f"Connection failed: {str(e)}"
+
+    async def send_audio_chunk(self, audio_data: bytes) -> None:
+        """Send audio chunk to backend for processing."""
+        if not self.connected or not self.websocket:
+            return
+
+        try:
+            # Encode audio as base64
+            audio_b64 = base64.b64encode(audio_data).decode('utf-8')
+            message = {
+                "type": "audio",
+                "data": audio_b64
+            }
+            await self.websocket.send(json.dumps(message))
+        except Exception as e:
+            self.status_message = f"Failed to send audio: {str(e)}"
+
+    async def listen_for_transcripts(self) -> None:
+        """Listen for transcript messages from backend."""
+        if not self.connected or not self.websocket:
+            return
+
+        try:
+            async for message in self.websocket:
+                try:
+                    data = json.loads(message)
+
+                    # Check if it's a system status message
+                    if "state" in data:
+                        self.status_message = data.get("message", "")
+                        continue
+
+                    # It's a transcript segment
+                    self.transcripts.append(data)
+
+                    # Keep only last 50 transcripts to avoid memory issues
+                    if len(self.transcripts) > 50:
+                        self.transcripts = self.transcripts[-50:]
+
+                except json.JSONDecodeError:
+                    continue
+
+        except ConnectionClosedError:
+            self.connected = False
+            self.status_message = "Connection lost"
+
+    def display_transcripts(self) -> None:
+        """Display current transcripts in the UI."""
+        if not self.transcripts:
+            st.info("No transcripts received yet. Start recording to see real-time transcription and translation.")
+            return
+
+        for i, transcript in enumerate(self.transcripts):
+            speaker_id = transcript.get("speaker_id", "UNKNOWN")
+            speaker_role = transcript.get("speaker_role", "unknown")
+            text = transcript.get("text", "")
+            translated_text = transcript.get("translated_text", "")
+            start_time = transcript.get("start_time", 0.0)
+
+            # Create a unique key for each transcript
+            with st.container():
+                st.markdown(f"""
+                <div class="transcript-card">
+                    <div class="speaker-label">{speaker_id} ({speaker_role}) - {start_time:.1f}s</div>
+                    <div class="original-text">{text}</div>
+                    {f'<div class="translated-text">{translated_text}</div>' if translated_text else ''}
+                </div>
+                """, unsafe_allow_html=True)
+
+    def get_status_color(self) -> str:
+        """Get status color for UI display."""
+        if self.connected:
+            return "green"
+        return "red"
 
 
-def main() -> None:
-    st.set_page_config(
-        page_title="IIKSHANA — Courtroom Accessibility",
-        page_icon="⚖️",
-        layout="centered",
-    )
+# Global transcript display instance
+transcript_display = TranscriptDisplay()
 
-    # ── Inject CSS + Hero ─────────────────────────────────────────────────
-    st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
-    st.markdown(HERO_HTML, unsafe_allow_html=True)
 
+def start_websocket_listener():
+    """Start WebSocket listener in a separate thread."""
+    async def run_listener():
+        await transcript_display.connect_websocket()
+        await transcript_display.listen_for_transcripts()
+
+    def thread_wrapper():
+        asyncio.run(run_listener())
+
+    thread = threading.Thread(target=thread_wrapper, daemon=True)
+    thread.start()
+
+
+def batch_processing_ui() -> None:
+    """Original batch processing functionality."""
     # ── Pipeline config card ──────────────────────────────────────────────
     st.markdown('<div class="input-card"><h3>⚙️ Pipeline Configuration</h3>', unsafe_allow_html=True)
 
     col1, col2 = st.columns(2)
     with col1:
-        split = st.selectbox("Split", VALID_SPLITS, index=0)
+        split = st.selectbox("Split", VALID_SPLITS, index=0, key="batch_split")
     with col2:
-        target_language = st.selectbox("Translate to", ("es", "fr", "de"), index=0)
+        target_language = st.selectbox("Translate to", ("es", "fr", "de"), index=0, key="batch_lang")
 
     target_label = {"es": "Spanish 🇪🇸", "fr": "French 🇫🇷", "de": "German 🇩🇪"}.get(
         target_language, target_language
@@ -249,6 +407,7 @@ def main() -> None:
             "Re-run config search (slow)",
             value=False,
             help="Compares many models. Leave off to reuse the last best config.",
+            key="batch_rerun"
         )
     with col4:
         manifest_tail = st.number_input(
@@ -260,6 +419,7 @@ def main() -> None:
                 "Each run rewrites translation_inputs.csv / predictions (no append). "
                 "Only the last N manifest WAVs are included."
             ),
+            key="batch_tail"
         )
 
     st.markdown("</div>", unsafe_allow_html=True)
@@ -267,10 +427,11 @@ def main() -> None:
     # ── Audio input card ──────────────────────────────────────────────────
     st.markdown('<div class="input-card"><h3>🎙️ Audio Input</h3>', unsafe_allow_html=True)
 
-    audio_bytes = st.audio_input("Record courtroom audio")
+    audio_bytes = st.audio_input("Record courtroom audio", key="batch_audio")
     uploaded = st.file_uploader(
         "Or upload an audio file",
         type=("wav", "mp3", "webm", "m4a", "ogg"),
+        key="batch_upload"
     )
 
     st.markdown("</div>", unsafe_allow_html=True)
@@ -281,6 +442,7 @@ def main() -> None:
         type="primary",
         disabled=not audio_bytes and not uploaded,
         use_container_width=True,
+        key="batch_go"
     )
 
     if not go:
@@ -289,7 +451,6 @@ def main() -> None:
             "then unpause **model_pipeline_dag** in the Airflow UI if needed. "
             "The app also runs `airflow dags unpause` automatically before each trigger."
         )
-        st.markdown(FOOTER_HTML, unsafe_allow_html=True)
         return
 
     # ── Process audio ─────────────────────────────────────────────────────
@@ -340,7 +501,7 @@ def main() -> None:
     if code != 0:
         st.error(
             "**Airflow trigger failed.** Check: `cd airflow && docker compose ps` "
-            f"(scheduler must be running).\n\nExit `{code}`\n\n```\n{log or '(no output)'}\n```"
+            "(scheduler must be running).\n\nExit `{code}`\n\n```\n{log or '(no output)'}\n```"
         )
         return
 
@@ -373,7 +534,6 @@ def main() -> None:
             "The DAG may still be running — check task logs in the Airflow UI. "
             f"Look for outputs in `data/model_runs/{split}/translation_predictions_*.csv`."
         )
-        st.markdown(FOOTER_HTML, unsafe_allow_html=True)
         return
 
     text, pred_path, best_cfg = got
@@ -405,6 +565,81 @@ def main() -> None:
     with st.expander("Pipeline details"):
         st.write(f"**Best config:** `{best_cfg}`")
         st.write(f"**Predictions file:** `{pred_path}`")
+
+
+def realtime_processing_ui() -> None:
+    """Real-time processing with WebSocket connection."""
+    # ── Connection status ─────────────────────────────────────────────────
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        st.markdown('<div class="input-card"><h3>🔗 Backend Connection</h3>', unsafe_allow_html=True)
+        if transcript_display.connected:
+            st.success(f"✅ Connected to backend at {WS_URL}")
+            st.caption(f"Status: {transcript_display.status_message}")
+        else:
+            st.error(f"❌ Not connected to backend at {WS_URL}")
+            st.caption(f"Status: {transcript_display.status_message}")
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    with col2:
+        if st.button("🔄 Reconnect", key="reconnect"):
+            start_websocket_listener()
+
+    # ── Initialize WebSocket connection ───────────────────────────────────
+    if not transcript_display.connected:
+        start_websocket_listener()
+        time.sleep(1)  # Give it a moment to connect
+
+    # ── Audio input for real-time processing ─────────────────────────────
+    st.markdown('<div class="input-card"><h3>🎙️ Real-Time Audio Input</h3>', unsafe_allow_html=True)
+
+    audio_bytes = st.audio_input("Record courtroom audio for real-time processing", key="realtime_audio")
+
+    if audio_bytes and transcript_display.connected:
+        # Send audio to backend via WebSocket
+        asyncio.run(transcript_display.send_audio_chunk(audio_bytes.getvalue()))
+        st.success("Audio sent for processing")
+
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    # ── Live transcripts display ──────────────────────────────────────────
+    st.markdown('<div class="input-card"><h3>📝 Live Transcripts</h3>', unsafe_allow_html=True)
+    transcript_display.display_transcripts()
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    # Auto-refresh every 0.5 seconds to show new transcripts
+    time.sleep(0.5)
+    st.rerun()
+
+
+FOOTER_HTML = """
+<div class="footer">
+    <p>⚖️ IIKSHANA COURTROOM ACCESSIBILITY &nbsp;·&nbsp; Empowering equal access to justice through audio AI</p>
+</div>
+"""
+
+
+def main() -> None:
+    st.set_page_config(
+        page_title="IIKSHANA — Courtroom Accessibility",
+        page_icon="⚖️",
+        layout="centered",
+    )
+
+    # ── Inject CSS + Hero ─────────────────────────────────────────────────
+    st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
+    st.markdown(HERO_HTML, unsafe_allow_html=True)
+
+    # ── Create tabs ──────────────────────────────────────────────────────
+    tab1, tab2 = st.tabs(["🔄 Batch Processing", "⚡ Real-Time Processing"])
+
+    with tab1:
+        # ── Batch Processing (existing functionality) ────────────────────
+        batch_processing_ui()
+
+    with tab2:
+        # ── Real-Time Processing ──────────────────────────────────────────
+        realtime_processing_ui()
 
     st.markdown(FOOTER_HTML, unsafe_allow_html=True)
 
