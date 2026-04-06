@@ -32,8 +32,8 @@ app = FastAPI(
 # Configure CORS for frontend connections
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Configure appropriately for production
-    allow_credentials=True,
+    allow_origins=["*"],  # Local dev only; tighten this for production
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -45,8 +45,10 @@ async def health_check():
     return {"status": "healthy"}
 
 
+from fastapi import WebSocket
+
 @app.websocket("/ws/audio")
-async def audio_websocket_endpoint(websocket):
+async def audio_websocket_endpoint(websocket: WebSocket):
     """WebSocket endpoint for real-time audio processing."""
     await websocket_endpoint(websocket)
 

@@ -58,9 +58,6 @@ CUSTOM_CSS = """
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=Inter:wght@300;400;500;600&display=swap');
 
-CUSTOM_CSS = """
-<style>
-@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=Inter:wght@300;400;500;600&display=swap');
 
 /* ── Global background ─── */
 .stApp {
@@ -274,7 +271,10 @@ class TranscriptDisplay:
     async def connect_websocket(self) -> None:
         """Connect to the backend WebSocket."""
         try:
-            self.websocket = await websockets.connect(WS_URL)
+            self.websocket = await websockets.connect(
+                WS_URL,
+                origin="http://localhost:8501",
+            )
             self.connected = True
             self.status_message = "Connected to backend"
 
@@ -292,7 +292,7 @@ class TranscriptDisplay:
 
         except Exception as e:
             self.connected = False
-            self.status_message = f"Connection failed: {str(e)}"
+            self.status_message = f"Connection failed: {type(e).__name__}: {str(e)}"
 
     async def send_audio_chunk(self, audio_data: bytes) -> None:
         """Send audio chunk to backend for processing."""
@@ -369,11 +369,14 @@ class TranscriptDisplay:
         return "red"
 
 
-# Global transcript display instance
-transcript_display = TranscriptDisplay()
+def get_transcript_display() -> TranscriptDisplay:
+    """Persist the transcript display object across Streamlit reruns."""
+    if "transcript_display" not in st.session_state:
+        st.session_state.transcript_display = TranscriptDisplay()
+    return st.session_state.transcript_display
 
 
-def start_websocket_listener():
+def start_websocket_listener(transcript_display: TranscriptDisplay):
     """Start WebSocket listener in a separate thread."""
     async def run_listener():
         await transcript_display.connect_websocket()
@@ -569,6 +572,8 @@ def batch_processing_ui() -> None:
 
 def realtime_processing_ui() -> None:
     """Real-time processing with WebSocket connection."""
+    transcript_display = get_transcript_display()
+
     # ── Connection status ─────────────────────────────────────────────────
     col1, col2 = st.columns([3, 1])
     with col1:
@@ -583,11 +588,11 @@ def realtime_processing_ui() -> None:
 
     with col2:
         if st.button("🔄 Reconnect", key="reconnect"):
-            start_websocket_listener()
+            start_websocket_listener(transcript_display)
 
     # ── Initialize WebSocket connection ───────────────────────────────────
     if not transcript_display.connected:
-        start_websocket_listener()
+        start_websocket_listener(transcript_display)
         time.sleep(1)  # Give it a moment to connect
 
     # ── Audio input for real-time processing ─────────────────────────────

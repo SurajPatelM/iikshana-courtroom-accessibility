@@ -5,16 +5,17 @@ WebSocket handler for real-time audio streaming and transcript delivery.
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import tempfile
 from pathlib import Path
-from typing import Optional, Dict
+from typing import Dict, Optional
 
-import websockets
-from websockets.exceptions import ConnectionClosedError
+from fastapi import WebSocket
+from fastapi.websockets import WebSocketDisconnect
 
-from ..models.schemas import SessionConfig, SystemStatus, TranscriptSegment
 from ..models.enums import SpeakerRole, SystemState
+from ..models.schemas import SessionConfig, SystemStatus, TranscriptSegment
 from ..agents.orchestrator import process_session_audio
 
 
@@ -30,7 +31,7 @@ class CourtroomWebSocketHandler:
         self.session_config: Optional[SessionConfig] = None
         self.role_mapping: Optional[Dict[str, SpeakerRole]] = None
 
-    async def handle_connection(self, websocket: websockets.WebSocketServerProtocol) -> None:
+    async def handle_connection(self, websocket: WebSocket) -> None:
         """
         Handle a WebSocket connection for courtroom audio streaming.
 
@@ -41,11 +42,14 @@ class CourtroomWebSocketHandler:
         - Server sends: SystemStatus messages for connection state
         - Server sends: TranscriptSegment messages for processed audio
         """
+        await websocket.accept()
+
         try:
             # Send initial connection status
             await self._send_status(websocket, SystemState.CONNECTING, "WebSocket connected")
 
-            async for message in websocket:
+            while True:
+                message = await websocket.receive_text()
                 try:
                     data = json.loads(message)
                     msg_type = data.get("type")
@@ -62,12 +66,12 @@ class CourtroomWebSocketHandler:
                 except json.JSONDecodeError:
                     await self._send_status(websocket, SystemState.ERROR, "Invalid JSON message")
 
-        except ConnectionClosedError:
+        except WebSocketDisconnect:
             pass  # Client disconnected normally
         except Exception as e:
             await self._send_status(websocket, SystemState.ERROR, f"Connection error: {str(e)}")
 
-    async def _handle_config(self, websocket: websockets.WebSocketServerProtocol, data: dict) -> None:
+    async def _handle_config(self, websocket: WebSocket, data: dict) -> None:
         """Handle session configuration message."""
         try:
             config_data = data.get("config", {})
@@ -76,7 +80,7 @@ class CourtroomWebSocketHandler:
         except Exception as e:
             await self._send_status(websocket, SystemState.ERROR, f"Invalid config: {str(e)}")
 
-    async def _handle_audio(self, websocket: websockets.WebSocketServerProtocol, data: dict) -> None:
+    async def _handle_audio(self, websocket: WebSocket, data: dict) -> None:
         """Handle audio chunk message."""
         if not self.session_config:
             await self._send_status(websocket, SystemState.ERROR, "Session not configured")
@@ -107,7 +111,7 @@ class CourtroomWebSocketHandler:
 
                 # Send each segment to client
                 for segment in segments:
-                    await websocket.send(segment.model_dump_json())
+                    await websocket.send_text(segment.model_dump_json())
 
                 # Update status back to idle
                 await self._send_status(websocket, SystemState.IDLE, "Audio processed successfully")
@@ -119,7 +123,7 @@ class CourtroomWebSocketHandler:
         except Exception as e:
             await self._send_status(websocket, SystemState.ERROR, f"Audio processing failed: {str(e)}")
 
-    async def _handle_roles(self, websocket: websockets.WebSocketServerProtocol, data: dict) -> None:
+    async def _handle_roles(self, websocket: WebSocket, data: dict) -> None:
         """Handle speaker role mapping message."""
         try:
             mapping_data = data.get("mapping", {})
@@ -130,17 +134,17 @@ class CourtroomWebSocketHandler:
         except Exception as e:
             await self._send_status(websocket, SystemState.ERROR, f"Invalid role mapping: {str(e)}")
 
-    async def _send_status(self, websocket: websockets.WebSocketServerProtocol, state: SystemState, message: Optional[str] = None) -> None:
+    async def _send_status(self, websocket: WebSocket, state: SystemState, message: Optional[str] = None) -> None:
         """Send a system status message to the client."""
         status = SystemStatus(state=state, message=message)
-        await websocket.send(status.model_dump_json())
+        await websocket.send_text(status.model_dump_json())
 
 
 # Global handler instance
 _websocket_handler = CourtroomWebSocketHandler()
 
 
-async def websocket_endpoint(websocket: websockets.WebSocketServerProtocol) -> None:
+async def websocket_endpoint(websocket: WebSocket) -> None:
     """
     WebSocket endpoint for courtroom audio processing.
     Routes to the global handler instance.

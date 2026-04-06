@@ -30,7 +30,7 @@ def _get_pipeline() -> Pipeline:
             raise ValueError("HF_API_TOKEN is not set. Please set it in the environment.")
         _pipeline = Pipeline.from_pretrained(
             "pyannote/speaker-diarization-3.1",
-            use_auth_token=hf_token
+            token=hf_token
         )
     return _pipeline
 
