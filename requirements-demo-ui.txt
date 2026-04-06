@@ -1,0 +1,24 @@
+# Optional: full "UI audio analysis" tab in demo/gradio_expo_app.py (gender + emotion). ffmpeg on PATH.
+# Base expo UI: pip install -r requirements.txt (includes gradio + elevenlabs).
+#
+# PyPI inaSpeechSegmenter declares onnxruntime-gpu (no macOS / Py3.13 wheels). GitHub expects
+# onnxruntime-silicon (no Py3.13 wheels). Use CPU onnxruntime + install segmenter without deps.
+#
+# Install (two steps):
+#   pip install -r requirements-demo-ui.txt
+#   pip install --no-deps "inaSpeechSegmenter==0.8.0"
+#
+# If TensorFlow or FunASR fail on Python 3.13, use a 3.11 or 3.12 venv for this path only.
+# torchaudio: required by FunASR emotion2vec+ (otherwise "No module named 'torchaudio'").
+
+# elevenlabs is in requirements.txt for expo + pipeline STT
+funasr>=1.0.0
+modelscope>=1.9.0
+torch>=2.0.0
+torchaudio>=2.0.0
+tensorflow>=2.15.0
+onnxruntime>=1.19.0
+scikit-image>=0.22.0
+pyannote.core>=5.0.0
+Pyro4>=4.82
+pytextgrid>=0.1.4

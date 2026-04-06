@@ -1,5 +1,5 @@
 """
-Ingest expo / Streamlit recordings into the same layout as the batch data pipeline.
+Ingest expo / demo UI recordings into the same layout as the batch data pipeline.
 
 Flow (matches offline pipeline intent):
   1. Persist bytes under ``data/raw/expo_ui/`` (audit / DVC-friendly raw hook).
@@ -9,11 +9,12 @@ Flow (matches offline pipeline intent):
   4. Append one entry to ``data/processed/<split>/manifest.json`` so downstream DAGs
      (``build_translation_inputs_from_audio``, validation, anomaly manifest checks ) see the file.
 
-Call from repo root with ``PYTHONPATH`` including the repo (Streamlit app sets this).
+Call from repo root with ``PYTHONPATH`` including the repo (expo UI sets this).
 """
 
 from __future__ import annotations
 
+import csv
 import json
 import sys
 from datetime import datetime, timezone
@@ -31,16 +32,87 @@ from scripts.utils import PROCESSED_DIR, RAW_DIR, load_config  # noqa: E402
 
 VALID_SPLITS = ("dev", "test", "holdout")
 
+MODEL_RUNS_DIR = REPO_ROOT / "data" / "model_runs"
+EXPO_SIDECAR_SUFFIX = ".scribe.txt"  # EXPO_<ts>.wav.scribe.txt — batch STT fallback for Docker
+
+
+def _filter_csv_drop_expo_rows(csv_path: Path) -> None:
+    """Remove rows whose ``file`` column starts with ``EXPO_`` (UI re-ingest hygiene)."""
+    if not csv_path.is_file():
+        return
+    try:
+        with csv_path.open(newline="", encoding="utf-8") as f:
+            rows = list(csv.DictReader(f))
+    except OSError:
+        return
+    if not rows or "file" not in rows[0]:
+        return
+    fieldnames = list(rows[0].keys())
+    kept = [r for r in rows if not str(r.get("file", "")).startswith("EXPO_")]
+    if len(kept) == len(rows):
+        return
+    with csv_path.open("w", newline="", encoding="utf-8") as f:
+        w = csv.DictWriter(f, fieldnames=fieldnames)
+        w.writeheader()
+        w.writerows(kept)
+
+
+def clear_previous_expo_artifacts(*, split: str) -> None:
+    """
+    Remove prior EXPO UI clips from ``data/processed/<split>/`` and EXPO rows from manifest + model CSVs.
+
+    Keeps RAVDESS and other datasets intact. Call before writing a new EXPO_* ingest so the DAG does not
+    accumulate stale expo rows.
+    """
+    if split not in VALID_SPLITS:
+        raise ValueError(f"split must be one of {VALID_SPLITS}, got {split!r}")
+
+    split_dir = PROCESSED_DIR / split
+    if split_dir.is_dir():
+        for p in split_dir.glob("EXPO_*.wav"):
+            p.unlink(missing_ok=True)
+        for p in split_dir.glob(f"EXPO_*{EXPO_SIDECAR_SUFFIX}"):
+            p.unlink(missing_ok=True)
+
+        manifest_path = split_dir / "manifest.json"
+        if manifest_path.exists():
+            try:
+                entries = json.loads(manifest_path.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                entries = []
+            if isinstance(entries, list):
+                filtered = [
+                    e
+                    for e in entries
+                    if isinstance(e, dict) and not str(e.get("file", "")).startswith("EXPO_")
+                ]
+                if len(filtered) != len(entries):
+                    manifest_path.write_text(json.dumps(filtered, indent=2), encoding="utf-8")
+
+    model_split = MODEL_RUNS_DIR / split
+    if model_split.is_dir():
+        _filter_csv_drop_expo_rows(model_split / "translation_inputs.csv")
+        for pred in model_split.glob("translation_predictions_*.csv"):
+            _filter_csv_drop_expo_rows(pred)
+
 
 def ingest_expo_recording(
     source_path: Path,
     *,
     split: str = "dev",
     source_suffix: str = ".wav",
+    local_scribe_transcript: str | None = None,
+    clear_previous_expo: bool = True,
 ) -> tuple[Path, dict[str, Any]]:
     """
     Process ``source_path`` (temporary file from UI) into ``data/processed/<split>/``
     and update manifest.
+
+    When ``local_scribe_transcript`` is set, writes ``<EXPO_wav>.scribe.txt`` beside the WAV so
+    ``build_translation_inputs_from_audio`` can fill ``source_text`` if Docker STT has no API key.
+
+    When ``clear_previous_expo`` is true (default), removes older ``EXPO_*`` WAVs/sidecars, prunes their
+    manifest rows, and drops EXPO rows from ``data/model_runs/<split>/*.csv``.
 
     Returns
     -------
@@ -51,6 +123,9 @@ def ingest_expo_recording(
     """
     if split not in VALID_SPLITS:
         raise ValueError(f"split must be one of {VALID_SPLITS}, got {split!r}")
+
+    if clear_previous_expo:
+        clear_previous_expo_artifacts(split=split)
 
     cfg = load_config()
     preproc = cfg.get("preprocessing", {})
@@ -112,5 +187,10 @@ def ingest_expo_recording(
     }
     entries.append(row)
     manifest_path.write_text(json.dumps(entries, indent=2), encoding="utf-8")
+
+    tx = (local_scribe_transcript or "").strip()
+    if tx:
+        sidecar = split_dir / f"{dest_name}{EXPO_SIDECAR_SUFFIX}"
+        sidecar.write_text(tx, encoding="utf-8")
 
     return out_wav, row

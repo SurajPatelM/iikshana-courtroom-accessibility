@@ -1,6 +1,8 @@
-# Expo demo (Streamlit)
+# Expo demo (Gradio)
 
-Live **microphone or file** → **pipeline ingest** → **Groq STT** → **translation**.
+**Single Gradio flow:** **microphone or file** → ElevenLabs **Scribe v2** → gender/emotion models (host-only, **not** in Docker) → **ElevenLabs TTS** (spoken summary) → **ingest + `model_pipeline_dag`** (batch translation to predictions CSV) → **ElevenLabs TTS** (translated text). **Translation in the UI comes only from the DAG** (CSV poll when **Wait for DAG translation** is on). The DAG still uses Groq (or your configured backends) for the actual translate step.
+
+That Docker path uses its **own** Scribe step in the worker and needs **`ELEVENLABS_API_KEY`** in **`airflow/.env`** for batch STT when applicable.
 
 ## What “attached to the pipeline” means
 
@@ -15,7 +17,7 @@ Then STT and translation run on the **processed** WAV so the demo matches what t
 
 ### Airflow (automatic model stages)
 
-With **Docker Compose** running in `airflow/` (`docker compose up`), enable **“trigger model_pipeline_dag”** in the sidebar. After each ingest, the app runs:
+With **Docker Compose** running in `airflow/` (`docker compose up`), each **Run** on the main button ingests and triggers the DAG. The app runs:
 
 `docker compose exec -T airflow-scheduler airflow dags trigger model_pipeline_dag --conf '{"split":"dev","refresh_inputs":true}'`
 
@@ -26,20 +28,32 @@ With **Docker Compose** running in `airflow/` (`docker compose up`), enable **�
 
 Override paths via env: `AIRFLOW_COMPOSE_DIR`, `AIRFLOW_SCHEDULER_SERVICE`, `AIRFLOW_MODEL_DAG_ID`.
 
+Set **`ELEVENLABS_API_KEY`** (and **`GROQ_API_KEY`**, etc.) in **`airflow/.env`** and/or **`.secrets/.env`** at the repo root — `docker-compose.yaml` loads both via **`env_file`** so values are not overwritten by empty `${VAR:-}` entries. After editing, run **`docker compose down && docker compose up`** from `airflow/`. See **`airflow/.env.example`**.
+
+Each Gradio ingest also writes **`EXPO_*.wav.scribe.txt`** with the **local** Scribe transcript; **`build_translation_inputs_from_audio`** uses that sidecar when container STT returns empty, so batch translation can still run without container Scribe.
+
 ## Run
 
 From the **repository root**:
 
 ```bash
 source .venv/bin/activate   # optional
-pip install -r requirements.txt   # includes streamlit>=1.33.0
+pip install -r requirements.txt   # includes gradio + elevenlabs
 export PYTHONPATH=.
-export GROQ_API_KEY=...     # or: set -a && source .env && set +a
+export ELEVENLABS_API_KEY=...   # STT + TTS on the main demo; also set in airflow/.env for DAG STT
+export GROQ_API_KEY=...         # still required for Groq-backed *translation* configs in the DAG
+# or: set -a && source .env && set +a
 
-streamlit run demo/streamlit_expo_app.py
+python demo/gradio_expo_app.py
 ```
 
-Open the URL Streamlit prints (usually http://localhost:8501). Allow **microphone** access in the browser.
+Open the URL Gradio prints (default **http://127.0.0.1:7860**). Allow **microphone** access in the browser.
+
+Optional: `GRADIO_SERVER_PORT=7861 python demo/gradio_expo_app.py`
+
+The app defaults to **`127.0.0.1`** so the **browser microphone** works (open **http://127.0.0.1:7860**, not `http://0.0.0.0:…`). For access from other machines on the LAN, run `GRADIO_SERVER_NAME=0.0.0.0 python demo/gradio_expo_app.py` and prefer **upload** or HTTPS for mic capture.
+
+For **gender/emotion** models, also: `pip install -r requirements-demo-ui.txt` and the `inaSpeechSegmenter` line documented in that file.
 
 ## Notes
 

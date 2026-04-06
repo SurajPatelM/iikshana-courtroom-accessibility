@@ -22,7 +22,8 @@ You also need API keys for the external services the backend calls (see Environm
 | Variable | Purpose |
 |----------|---------|
 | `GOOGLE_API_KEY` or `GEMINI_API_KEY` | Google Gemini for translation, vision, and audio analysis |
-| `GROQ_API_KEY` | Groq Whisper for speech to text |
+| `ELEVENLABS_API_KEY` | ElevenLabs Scribe v2 for batch / pipeline speech-to-text |
+| `GROQ_API_KEY` | Groq for text generation when using Groq translation configs |
 | `HF_API_TOKEN` | Hugging Face Inference API |
 | `GOOGLE_APPLICATION_CREDENTIALS` | Path to GCP service account JSON for Text to Speech |
 

@@ -39,7 +39,7 @@ PROMPTS_DIR = REPO_ROOT / "prompts"
 # Returned instead of calling the model when there is nothing to translate (always English for UX).
 EMPTY_TRANSCRIPTION_MESSAGE_EN = (
     "[EMPTY_TRANSCRIPT] No speech text to translate. "
-    "STT returned nothing — check audio, mic level, and GROQ_API_KEY in this runtime (e.g. Airflow worker)."
+    "STT returned nothing — check audio, mic level, and ELEVENLABS_API_KEY in this runtime (e.g. Airflow worker)."
 )
 
 

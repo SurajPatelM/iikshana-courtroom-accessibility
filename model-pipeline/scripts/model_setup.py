@@ -3,7 +3,7 @@ Model pipeline entry point: run translation on processed data (text or audio).
 
 Uses the same splits as the data pipeline (dev, test, holdout). Reads
 manifest.json (one entry per WAV: file, dataset, speaker_id, emotion). For
-each entry: if the file is audio (WAV, etc.), transcribes it with Groq Whisper
+each entry: if the file is audio (WAV, etc.), transcribes it with ElevenLabs Scribe v2
 (STT) then translates the transcribed text; otherwise generates a courtroom
 phrase from emotion and translates it. Optionally supports translation_inputs
 if you want to supply explicit text instead.
@@ -21,6 +21,7 @@ import argparse
 import json
 import re
 import sys
+import time
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -46,10 +47,10 @@ from backend.src.services.gemini_translation import (
     translate_text,
     translation_skipped_no_source,
 )
-from backend.src.services.groq_stt_service import (
-    transcribe_audio,
+from backend.src.services.elevenlabs_stt_service import (
     AUDIO_EXTENSIONS,
     DEFAULT_STT_MODEL,
+    transcribe_audio,
 )
 
 # Same split names as the data pipeline (stratified_split: dev, test, holdout)
@@ -110,12 +111,19 @@ def _parse_args() -> argparse.Namespace:
         "--stt-model",
         type=str,
         default=DEFAULT_STT_MODEL,
-        help="Groq Whisper model for speech-to-text (default whisper-large-v3-turbo).",
+        help="ElevenLabs Scribe model id for speech-to-text (default scribe_v2).",
     )
     parser.add_argument(
         "--no-stt",
         action="store_true",
         help="Disable STT: always generate phrase from emotion instead of transcribing WAV.",
+    )
+    parser.add_argument(
+        "--translate-delay",
+        type=float,
+        default=0.0,
+        help="Seconds to sleep between Groq/API translation calls when using translation_inputs.csv "
+        "(reduces 429 rate limits). Default 0; Airflow uses ~0.6.",
     )
     return parser.parse_args()
 
@@ -141,7 +149,7 @@ def _run_on_manifest(
 ) -> pd.DataFrame:
     """
     For each manifest entry: if use_stt and the file is audio (WAV etc.), transcribe
-    with Groq Whisper then translate the text; otherwise generate a courtroom phrase
+    with ElevenLabs Scribe v2 then translate the text; otherwise generate a courtroom phrase
     from emotion and translate it.
     """
     config = _load_model_config(config_id)
@@ -244,7 +252,12 @@ def _run_on_manifest(
     return pd.DataFrame(rows)
 
 
-def _run_translation_inputs(path: Path, config_id: str) -> tuple[pd.DataFrame, int]:
+def _run_translation_inputs(
+    path: Path,
+    config_id: str,
+    *,
+    translate_delay_sec: float = 0.0,
+) -> tuple[pd.DataFrame, int]:
     """Load translation_inputs and call translate_text for each row (API skipped when source is empty)."""
     if path.suffix == ".parquet":
         df = pd.read_parquet(path)
@@ -255,11 +268,14 @@ def _run_translation_inputs(path: Path, config_id: str) -> tuple[pd.DataFrame, i
             raise ValueError(f"translation_inputs must have column: {col}")
     translations: List[str] = []
     n_api_calls = 0
+    delay = max(0.0, float(translate_delay_sec))
     for _, row in df.iterrows():
         raw_src = row["source_text"]
         if translation_skipped_no_source(raw_src):
             translations.append(EMPTY_TRANSCRIPTION_MESSAGE_EN)
             continue
+        if delay > 0 and n_api_calls > 0:
+            time.sleep(delay)
         n_api_calls += 1
         translations.append(
             translate_text(
@@ -294,7 +310,11 @@ def main() -> None:
     inputs_path = find_translation_inputs(model_split, pipeline_split, TRANSLATION_INPUTS_BASENAME)
     if inputs_path is not None:
         print(f"Using {inputs_path} for translation inputs...")
-        df, n_api_calls = _run_translation_inputs(inputs_path, args.config_id)
+        df, n_api_calls = _run_translation_inputs(
+            inputs_path,
+            args.config_id,
+            translate_delay_sec=args.translate_delay,
+        )
         n_rows = len(df)
         n_skipped = n_rows - n_api_calls
         print(

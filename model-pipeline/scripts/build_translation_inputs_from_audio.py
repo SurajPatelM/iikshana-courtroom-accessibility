@@ -7,7 +7,7 @@ This ties the evaluation set to the actual data pipeline output:
 - Assign reference_translation from known script (e.g. RAVDESS has two phrases).
 - Write translation_inputs.csv so 2.1 and run_translation_eval use audio-derived inputs and labels.
 
-Requires: GROQ_API_KEY (for STT). Run from repo root with PYTHONPATH set.
+Requires: ELEVENLABS_API_KEY (for Scribe v2 STT). Run from repo root with PYTHONPATH set.
 
 Example:
     PYTHONPATH=. python model-pipeline/scripts/build_translation_inputs_from_audio.py --split dev --max-rows 30
@@ -32,10 +32,10 @@ for _p in (REPO_ROOT, SCRIPTS_DIR):
 
 from model_pipeline_paths import resolve_pipeline_and_model_roots, split_dirs
 
-from backend.src.services.groq_stt_service import (
-    transcribe_audio,
+from backend.src.services.elevenlabs_stt_service import (
     AUDIO_EXTENSIONS,
     DEFAULT_STT_MODEL,
+    transcribe_audio,
 )
 
 VALID_SPLITS = ("dev", "test", "holdout")
@@ -91,7 +91,12 @@ def _parse_args() -> argparse.Namespace:
         default=DEFAULT_TARGET_LANGUAGE,
         help="Target language code written into translation_inputs (default es).",
     )
-    p.add_argument("--stt-model", type=str, default=DEFAULT_STT_MODEL)
+    p.add_argument(
+        "--stt-model",
+        type=str,
+        default=DEFAULT_STT_MODEL,
+        help="ElevenLabs Scribe model id (default scribe_v2).",
+    )
     p.add_argument(
         "--delay",
         type=float,
@@ -218,6 +223,21 @@ def main() -> None:
             print(f"[WARN] STT failed for {file_name}: {e}")
             source_text = ""
 
+        # EXPO (Gradio): local Scribe writes ``EXPO_<ts>.wav.scribe.txt`` next to the WAV when container STT
+        # has no key or fails — use as source_text so model_setup still translates via the DAG.
+        sidecar = wav_path.parent / f"{file_name}.scribe.txt"
+        if (
+            not source_text
+            and (entry.get("dataset") or "").strip().upper() == "EXPO"
+            and sidecar.is_file()
+        ):
+            try:
+                source_text = sidecar.read_text(encoding="utf-8").strip() or ""
+            except OSError:
+                source_text = ""
+            if source_text:
+                print(f"[INFO] Using local Scribe sidecar for {file_name} ({len(source_text)} chars).")
+
         # Fallback: for RAVDESS we know the script, so fill source_text if STT failed or was skipped
         if not source_text and (entry.get("dataset") or "").strip().upper() == "RAVDESS":
             stmt = _ravdess_statement_from_file(file_name)
@@ -230,7 +250,7 @@ def main() -> None:
         if not source_text and (entry.get("dataset") or "").strip().upper() == "EXPO":
             print(
                 f"[WARN] Empty transcript for EXPO {file_name} — translation will not call the LLM "
-                "(empty source); check audio, STT, and GROQ_API_KEY."
+                "(empty source); check audio, STT, and ELEVENLABS_API_KEY."
             )
 
         rows.append({
@@ -252,7 +272,7 @@ def main() -> None:
     import pandas as pd
     df = pd.DataFrame(rows)
     # RAVDESS (and other curated sets): require gold reference for metric-based eval.
-    # EXPO (UI recordings): keep rows even without reference so batch translate matches Streamlit STT→translate path.
+    # EXPO (UI recordings): keep rows even without reference so batch translate matches expo STT→translate path.
     ds_upper = df["dataset"].astype(str).str.strip().str.upper()
     has_ref = df["reference_translation"].astype(str).str.strip().str.len() > 0
     keep = has_ref | (ds_upper == "EXPO")

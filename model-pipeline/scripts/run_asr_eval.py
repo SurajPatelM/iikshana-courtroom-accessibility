@@ -5,7 +5,7 @@ Proposal target (Section 7.2.2): WER < 10%. Same 2.1 pattern: load eval table fr
 pipeline output, features = audio file paths, labels = reference_transcript.
 
 Requires: data/processed/<split>/asr_inputs.csv (build with build_asr_inputs_from_audio.py).
-Optional: GROQ_API_KEY for STT. jiwer for WER.
+Optional: ELEVENLABS_API_KEY for Scribe v2 STT. jiwer for WER.
 
 Example:
     PYTHONPATH=. python model-pipeline/scripts/run_asr_eval.py --split dev
@@ -24,7 +24,7 @@ if str(REPO_ROOT) not in sys.path:
 
 import pandas as pd
 
-from backend.src.services.groq_stt_service import transcribe_audio, AUDIO_EXTENSIONS
+from backend.src.services.elevenlabs_stt_service import AUDIO_EXTENSIONS, transcribe_audio
 
 VALID_SPLITS = ("dev", "test", "holdout")
 ASR_INPUTS_BASENAME = "asr_inputs"

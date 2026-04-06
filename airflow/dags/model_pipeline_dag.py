@@ -31,6 +31,8 @@ _RUN_TMPL_REFRESH_CFG = "{{ 'true' if (dag_run.conf or {}).get('refresh_config_s
 _RUN_TMPL_TLANG = "{{ (dag_run.conf or {}).get('target_language', 'es') }}"
 # Last N manifest entries for build (higher = more rows in translation_inputs; not append-per-run).
 _RUN_TMPL_MANIFEST_TAIL = "{{ (dag_run.conf or {}).get('manifest_tail', 200) }}"
+# Space Groq translation calls in mode_setup to avoid 429 when translation_inputs has many rows.
+_RUN_TMPL_TRANSLATE_DELAY = "{{ (dag_run.conf or {}).get('translate_delay', 0.6) }}"
 
 # Run translation eval from repo root so backend and config are on PYTHONPATH.
 RUN_BUILD_TRANSLATION_INPUTS_FROM_AUDIO = f"""
@@ -99,9 +101,11 @@ else
 fi
 BEST_CONFIG_ID=$(python -c "import json; print(json.load(open('${{RESULTS_JSON}}', 'r', encoding='utf-8'))['best_config_id'])" 2>/dev/null || echo "{{{{ params.get('config_id', 'translation_flash_v1') }}}}")
 echo "Best config_id = $BEST_CONFIG_ID"
+TRANSLATE_DELAY="{_RUN_TMPL_TRANSLATE_DELAY}"
 python model-pipeline/scripts/model_setup.py \
   --split "${{SPLIT}}" \
-  --config-id "$BEST_CONFIG_ID"
+  --config-id "$BEST_CONFIG_ID" \
+  --translate-delay "$TRANSLATE_DELAY"
 echo "=== Model pipeline: done ==="
 """
 
@@ -110,7 +114,7 @@ with DAG(
     default_args=default_args,
     description="Model stages: build translation_inputs, config search, mode_setup. "
     "Conf: split, refresh_inputs (rebuild translation_inputs), refresh_config_search (re-run search; default omit/false), "
-    "target_language.",
+    "target_language, manifest_tail, translate_delay (seconds between Groq translation calls in mode_setup; default 0.6).",
     schedule=None,
     start_date=datetime(2025, 1, 1),
     catchup=False,

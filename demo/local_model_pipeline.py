@@ -2,7 +2,7 @@
 Run the same model stages as ``model_pipeline_dag`` locally (no Docker).
 
 Order: ``build_translation_inputs_from_audio`` → ``run_config_search`` → ``model_setup``.
-Translations shown in the expo UI are read from ``translation_predictions_<best_config>.csv`` only.
+Translations shown in the Gradio expo UI are read from ``translation_predictions_<best_config>.csv`` only.
 """
 
 from __future__ import annotations

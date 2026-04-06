@@ -1,5 +1,5 @@
 """
-Trigger an Airflow DAG from the host (e.g. Streamlit expo UI) while Docker Compose is running.
+Trigger an Airflow DAG from the host (e.g. Gradio expo UI) while Docker Compose is running.
 
 Uses ``docker compose -f airflow/docker-compose.yaml exec airflow-scheduler airflow ...``
 from the **airflow/** directory (compose project context).

@@ -43,7 +43,7 @@ Handles the first stage of the audio pipeline: turning raw speech into structure
 - Speaker identification (who said what)
 - Detected vocal emotion for each segment
 
-**Services used:** Groq Whisper (`groq_stt_service.py`) for transcription, Gemini (`gemini_service.py`) for speaker diarization and emotion analysis.
+**Services used:** Cloud STT/TTS vary by deployment; batch and eval paths use ElevenLabs Scribe v2 (`elevenlabs_stt_service.py`). Live Agent 1 may use Gemini (`gemini_service.py`) and related services for analysis depending on configuration.
 
 **How it works:**
 1. Receives an audio chunk from the orchestrator
