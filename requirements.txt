@@ -52,6 +52,12 @@ gradio>=4.44.0,<6.0.0
 elevenlabs>=1.0.0
 # UI audio analysis (gender, emotion2vec+, heavy ML): install separately — see requirements-demo-ui.txt
 
+# Real-time audio preprocessing VAD backends
+# silero-VAD requires torch (already in requirements-demo-ui.txt for the full UI stack)
+# webrtcvad is a lightweight fallback (no torch needed)
+silero-vad>=5.0
+webrtcvad>=2.0.10
+
 # Utilities
 python-dotenv>=1.0.0
 requests>=2.31.0
