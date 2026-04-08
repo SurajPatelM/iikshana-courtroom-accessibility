@@ -20,7 +20,7 @@ This directory is the **model-development** layer: translation and evaluation on
 
 **Typical default config:** `translation_flash_v1` (Groq + baseline prompts; see `config/models/translation_flash_v1.yaml`).
 
-**Live expo (Gradio):** [`demo/gradio_expo_app.py`](../demo/gradio_expo_app.py) — ingests via **`process_one`**, then optionally **triggers Docker Airflow `model_pipeline_dag`** (`refresh_inputs`) so **build_translation_inputs → config search → mode_setup** run on the host-mounted repo. Runbook: [`demo/README.md`](../demo/README.md).
+**Live expo (Gradio):** [`demo/gradio_expo_app.py`](../demo/gradio_expo_app.py) — ingests via **`process_one`**, then triggers Docker Airflow **`expo_translation_dag`** by default (**build_translation_inputs → mode_setup**, fixed `config_id`; no config search). Set **`AIRFLOW_MODEL_DAG_ID=model_pipeline_dag`** for **build → config search → mode_setup**. Runbook: [`demo/README.md`](../demo/README.md).
 
 ---
 

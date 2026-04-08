@@ -438,9 +438,14 @@ def run_ui_audio_analysis(
     wav_16k_path: Path,
     *,
     status: Callable[[str], None] | None = None,
+    skip_local_ml: bool = False,
 ) -> PipelineResult:
     """
     Run full pipeline on a 16 kHz mono WAV. Requires ELEVENLABS_API_KEY.
+
+    When ``skip_local_ml`` is True, skips inaSpeechSegmenter and emotion2vec+ (no heavy downloads
+    or CPU inference) — suitable for low-latency / real-time demo; speaker gender and emotion
+    show as unknown unless Scribe diarization labels are enough for display.
     """
     from elevenlabs.client import ElevenLabs  # noqa: PLC0415
 
@@ -520,28 +525,36 @@ def run_ui_audio_analysis(
             }
         ]
 
-    log("Running speaker gender model (inaSpeechSegmenter)…")
-    try:
-        segmenter = get_gender_segmenter()
-        ina_full = segmenter(str(wav_16k_path))
-    except Exception as e:  # noqa: BLE001
-        ina_full = []
-        log(f"Gender model warning: {e}")
+    ina_full: list[tuple[str, float, float]] = []
+    emo_model: Any = None
+    if skip_local_ml:
+        log("Skipping local gender/emotion models (fast path)…")
+    else:
+        log("Running speaker gender model (inaSpeechSegmenter)…")
+        try:
+            segmenter = get_gender_segmenter()
+            ina_full = segmenter(str(wav_16k_path))
+        except Exception as e:  # noqa: BLE001
+            ina_full = []
+            log(f"Gender model warning: {e}")
 
-    log("Running emotion model (emotion2vec+)…")
-    try:
-        emo_model = get_emotion_model()
-    except Exception as e:  # noqa: BLE001
-        emo_model = None
-        log(f"Emotion model unavailable: {e}")
+        log("Running emotion model (emotion2vec+)…")
+        try:
+            emo_model = get_emotion_model()
+        except Exception as e:  # noqa: BLE001
+            emo_model = None
+            log(f"Emotion model unavailable: {e}")
 
-    y_full, sr = sf.read(str(wav_16k_path))
-    if y_full.ndim > 1:
-        y_full = np.mean(y_full, axis=1)
-    y_full = np.asarray(y_full, dtype=np.float32)
-    if sr != 16_000:
-        y_full = librosa.resample(y_full, orig_sr=sr, target_sr=16_000)
-        sr = 16_000
+    y_full = np.array([], dtype=np.float32)
+    sr = 16_000
+    if emo_model is not None:
+        y_full, sr = sf.read(str(wav_16k_path))
+        if y_full.ndim > 1:
+            y_full = np.mean(y_full, axis=1)
+        y_full = np.asarray(y_full, dtype=np.float32)
+        if sr != 16_000:
+            y_full = librosa.resample(y_full, orig_sr=sr, target_sr=16_000)
+            sr = 16_000
 
     rich_lines: list[str] = []
     per_speaker_emotions: dict[str, list[tuple[str, float]]] = {}

@@ -21,8 +21,8 @@ docker compose up      # start webserver, scheduler, DB
 
 Then open `http://localhost:8080` in your browser.
 
-- **Expo Gradio UI:** `demo/gradio_expo_app.py` can trigger **`model_pipeline_dag`** via `docker compose exec`. **Unpause** that DAG once (toggle in the UI); new DAGs start paused if `DAGS_ARE_PAUSED_AT_CREATION` is true. Set **`ELEVENLABS_API_KEY`** in the Airflow environment for Scribe v2 during **`build_translation_inputs_from_audio`**.
-- **Trigger conf** (optional): `{"split": "dev", "refresh_inputs": true}` drops stale `translation_inputs` so the build step re-runs. Add `"refresh_config_search": true` only when you want to delete `config_search_results.json` and re-run config search (default / expo UI: omit or `false` to reuse the last best config). **`manifest_tail`** (default `200`): only the **last N** manifest entries are turned into rows each run — CSVs are **rewritten**, not appended, so line count stays about **N + header**, not one line per lifetime recording.
+- **Expo Gradio UI:** `demo/gradio_expo_app.py` triggers **`expo_translation_dag`** by default (no config search). Set **`AIRFLOW_MODEL_DAG_ID=model_pipeline_dag`** for the full eval DAG. **Unpause** the DAG you use once (toggle in the UI); new DAGs start paused if `DAGS_ARE_PAUSED_AT_CREATION` is true. Set **`ELEVENLABS_API_KEY`** in the Airflow environment for Scribe v2 during **`build_translation_inputs_from_audio`**.
+- **Trigger conf:** `{"split": "dev", "refresh_inputs": true}` drops stale `translation_inputs` so the build step re-runs. **`expo_translation_dag`:** use **`manifest_tail`** (Gradio default `1`), **`translate_delay`** / **`stt_delay`** (default `0`), **`config_id`** (fixed translation config). **`model_pipeline_dag`:** add `"refresh_config_search": true` to re-run BLEU config search; **`manifest_tail`** defaults to `200` in that DAG if omitted — raise in the Gradio UI for large batch rebuilds.
 
 - Default login (can be changed in `.env`):  
   - **Username**: `airflow`  
@@ -43,7 +43,8 @@ Allocate **4–8 GB RAM** to Docker for smooth dataset downloads and processing.
 
 - `dags/` – All DAG definitions:
   - `full_pipeline_dag.py` – data pipeline only (acquisition → … → DVC push)
-  - `model_pipeline_dag.py` – **model pipeline** (manual trigger; runs after data pipeline; see below)
+  - `model_pipeline_dag.py` – **model pipeline** (manual trigger; build inputs → **config search** → translate with best config)
+  - `expo_translation_dag.py` – **minimal inference path** (build inputs → translate with fixed `config_id`; no config search; default for Gradio)
   - `data_acquisition_dag.py`
   - `preprocessing_dag.py`
   - `validation_dag.py`

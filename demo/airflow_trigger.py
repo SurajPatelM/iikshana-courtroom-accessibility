@@ -9,7 +9,7 @@ Before trigger, calls ``airflow dags unpause`` so runs actually execute (new DAG
 Environment overrides:
   AIRFLOW_COMPOSE_DIR   — directory containing docker-compose.yaml (default: <repo>/airflow)
   AIRFLOW_SCHEDULER_SERVICE — service name (default: airflow-scheduler)
-  AIRFLOW_MODEL_DAG_ID  — DAG to trigger (default: model_pipeline_dag)
+  AIRFLOW_MODEL_DAG_ID  — DAG to trigger (default: expo_translation_dag — minimal, no config search)
   AIRFLOW_SKIP_UNPAUSE  — set to ``1`` to skip unpause before trigger
 """
 
@@ -63,8 +63,11 @@ def trigger_model_pipeline_dag(
     split: str = "dev",
     refresh_inputs: bool = True,
     refresh_config_search: bool = False,
-    manifest_tail: int = 200,
+    manifest_tail: int = 1,
     target_language: str = "es",
+    translate_delay: float = 0.0,
+    config_id: str | None = None,
+    stt_delay: float = 0.0,
     compose_dir: Path | None = None,
     service: str | None = None,
     dag_id: str | None = None,
@@ -75,8 +78,11 @@ def trigger_model_pipeline_dag(
     """
     Unpause the DAG (unless skipped), then ``airflow dags trigger`` with JSON conf.
 
-    ``refresh_config_search`` — when True, deletes ``config_search_results.json`` so
-    ``run_config_search`` runs again. Default False: reuse existing best config after the first run.
+    ``refresh_config_search`` — only used by ``model_pipeline_dag``; ignored by ``expo_translation_dag``.
+
+    ``translate_delay`` / ``config_id`` / ``stt_delay`` — used by ``expo_translation_dag`` (and
+    ``translate_delay`` by ``model_pipeline_dag``). Pass ``config_id`` when using the expo DAG so
+    the Gradio CSV poll opens the matching ``translation_predictions_<id>.csv``.
 
     Returns
     -------
@@ -93,18 +99,23 @@ def trigger_model_pipeline_dag(
         return 127, "", f"Compose file not found: {compose_file}"
 
     service = service or os.environ.get("AIRFLOW_SCHEDULER_SERVICE", "airflow-scheduler")
-    dag_id = dag_id or os.environ.get("AIRFLOW_MODEL_DAG_ID", "model_pipeline_dag")
+    dag_id = dag_id or os.environ.get("AIRFLOW_MODEL_DAG_ID", "expo_translation_dag")
 
-    tail_n = int(manifest_tail) if manifest_tail else 200
+    tail_n = int(manifest_tail) if manifest_tail else 1
     if tail_n < 1:
-        tail_n = 200
+        tail_n = 1
     conf: dict[str, Any] = {
         "split": split,
-        "refresh_inputs": refresh_inputs,
-        "refresh_config_search": refresh_config_search,
+        "refresh_inputs": bool(refresh_inputs),
+        "refresh_config_search": bool(refresh_config_search),
         "target_language": (target_language or "es").strip() or "es",
         "manifest_tail": tail_n,
+        "translate_delay": float(translate_delay),
+        "stt_delay": float(stt_delay),
     }
+    cid = (config_id or os.environ.get("EXPO_TRANSLATION_CONFIG_ID", "") or "").strip()
+    if cid:
+        conf["config_id"] = cid
     conf_json = json.dumps(conf, separators=(",", ":"))
 
     logs: list[str] = []

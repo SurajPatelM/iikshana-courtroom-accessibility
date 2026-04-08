@@ -1,10 +1,10 @@
 """
 IIKSHANA — courtroom accessibility expo UI (Gradio).
 
-**Main flow:** ElevenLabs **Scribe v2** (STT) → local speaker/gender/emotion → **ElevenLabs TTS** (spoken
-summary) → **ingest + ``model_pipeline_dag``** (batch translation) → **ElevenLabs TTS** (translated text).
-Translation text and translation TTS come **only** from the DAG output (predictions CSV), not from a separate
-local translator.
+**Fast translate (default):** after **Scribe** and **local** gender/emotion analysis (**not** ElevenLabs — those use
+**inaSpeechSegmenter** + **emotion2vec+** on the host), the UI can **translate on host** (no Airflow CSV wait).
+Optional: **skip local ML** only if you explicitly want a quicker run without gender/emotion. **Batch** path uses
+Airflow CSV translation instead of on-host translate.
 
 Run from repo root::
 
@@ -48,10 +48,41 @@ from demo.airflow_trigger import trigger_model_pipeline_dag
 from demo.local_model_pipeline import try_read_pipeline_translation
 from demo.pipeline_ingest import VALID_SPLITS, ingest_expo_recording
 
-POLL_SEC = 12
+# Fast path: last manifest row only (EXPO is appended last), tight CSV polling, no artificial API spacing by default.
+DEFAULT_MANIFEST_TAIL = 1
+POLL_SEC = max(1, int(os.environ.get("EXPO_POLL_SEC", "1")))
 MAX_WAIT_SEC = 45 * 60
+TRANSLATE_DELAY_SEC = float(os.environ.get("EXPO_TRANSLATE_DELAY", "0"))
+STT_DELAY_SEC = float(os.environ.get("EXPO_STT_DELAY", "0"))
+DEFAULT_TRANSLATION_CONFIG_ID = (
+    os.environ.get("EXPO_TRANSLATION_CONFIG_ID", "translation_flash_v1").strip() or "translation_flash_v1"
+)
+
+TRANSLATION_CONFIG_CHOICES = [
+    "translation_flash_v1",
+    "translation_flash_glossary",
+    "translation_flash_court",
+    "translation_flash_short_prompt",
+    "translation_flash_temp03",
+]
 
 LANG_LABELS = {"es": "Spanish", "fr": "French", "de": "German"}
+
+
+def _active_dag_id() -> str:
+    return (os.environ.get("AIRFLOW_MODEL_DAG_ID", "") or "expo_translation_dag").strip()
+
+
+def _default_fast_translate() -> bool:
+    """On-host translation + no Airflow CSV wait (does not skip gender/emotion unless that box is checked)."""
+    v = os.environ.get("IIKSHANA_REALTIME_MODE", "1").strip().lower()
+    return v not in ("0", "false", "no", "off")
+
+
+def _default_skip_local_ml() -> bool:
+    v = os.environ.get("IIKSHANA_SKIP_LOCAL_ML", "0").strip().lower()
+    return v in ("1", "true", "yes", "on")
+
 
 _AIRFLOW_EMPTY_STT_HINT = (
     "\n\n---\n**Why `[EMPTY_TRANSCRIPT]`?** Batch STT runs **in Docker**. Ensure **`ELEVENLABS_API_KEY`** is in "
@@ -70,6 +101,7 @@ def _airflow_chain_note_from_src(
     rerun_config_search: bool,
     manifest_tail: float,
     wait_for_csv: bool,
+    translation_config_id: str,
     local_scribe_transcript: str | None = None,
 ) -> tuple[str, str | None]:
     """Ingest same clip as EXPO + trigger DAG; optional poll CSV.
@@ -85,18 +117,25 @@ def _airflow_chain_note_from_src(
         local_scribe_transcript=local_scribe_transcript,
         clear_previous_expo=True,
     )
-    tail_n = int(manifest_tail) if manifest_tail else 200
+    tail_n = int(manifest_tail) if manifest_tail else DEFAULT_MANIFEST_TAIL
+    if tail_n < 1:
+        tail_n = DEFAULT_MANIFEST_TAIL
+    cfg_id = (translation_config_id or DEFAULT_TRANSLATION_CONFIG_ID).strip() or DEFAULT_TRANSLATION_CONFIG_ID
     code, log, _ = trigger_model_pipeline_dag(
         split=split,
         refresh_inputs=True,
         refresh_config_search=rerun_config_search,
         manifest_tail=tail_n,
         target_language=target_language,
+        translate_delay=TRANSLATE_DELAY_SEC,
+        config_id=cfg_id,
+        stt_delay=STT_DELAY_SEC,
     )
+    dag_id = _active_dag_id()
     lines = [
         "",
         "---",
-        "### Batch translation (`model_pipeline_dag`)",
+        f"### Batch translation (`{dag_id}`)",
         f"- Ingested **`{manifest_row['file']}`** into split `{split}` (same clip as above).",
         f"- DAG trigger exit code: **{code}**.",
     ]
@@ -110,8 +149,16 @@ def _airflow_chain_note_from_src(
         return "\n".join(lines), None
     deadline = time.monotonic() + MAX_WAIT_SEC
     got = None
+    # expo_translation_dag writes translation_predictions_<config_id>.csv; model_pipeline_dag uses
+    # config_search_results.json — poll that path when config_id is omitted.
+    poll_config_id = cfg_id if dag_id == "expo_translation_dag" else None
     while time.monotonic() < deadline:
-        got = try_read_pipeline_translation(REPO_ROOT, split, manifest_row["file"])
+        got = try_read_pipeline_translation(
+            REPO_ROOT,
+            split,
+            manifest_row["file"],
+            config_id=poll_config_id,
+        )
         if got is not None:
             break
         time.sleep(POLL_SEC)
@@ -200,12 +247,14 @@ def _run_unified_courtroom_demo(
     manifest_tail: float,
     airflow_rerun_config: bool,
     wait_for_airflow_csv: bool,
+    translation_config_id: str,
+    fast_translate: bool,
+    airflow_background: bool,
+    skip_local_ml: bool,
 ) -> tuple[str, str, str | None, str | None, str]:
     """
-    ElevenLabs Scribe + local ML + summary TTS, then ingest + ``model_pipeline_dag``; translation + translation
-    TTS use **only** batch CSV output (no local Gemini/Groq).
-
-    Return order: status, translation_md, summary_tts_path, translation_tts_path, detail_md.
+    ``fast_translate``: on-host ``translate_text`` + no CSV wait (optional background Airflow).
+    Otherwise: translation from Airflow CSV. ``skip_local_ml`` skips inaSpeechSegmenter + emotion2vec+ only.
     """
     src, to_clean = _gradio_audio_to_temp_wav(audio)
     if src is None or not src.is_file():
@@ -225,6 +274,7 @@ def _run_unified_courtroom_demo(
         from demo.audio_analysis_pipeline import (
             normalize_to_wav_16k_mono,
             run_ui_audio_analysis,
+            scribe_language_code_for_translation,
             synthesize_speech_mp3,
         )
 
@@ -240,7 +290,9 @@ def _run_unified_courtroom_demo(
         def status_cb(msg: str) -> None:
             log_lines.append(msg)
 
-        result = run_ui_audio_analysis(tmp_wav, status=status_cb)
+        result = run_ui_audio_analysis(
+            tmp_wav, status=status_cb, skip_local_ml=bool(skip_local_ml)
+        )
         progress = " → ".join(log_lines[-10:]) if log_lines else "(no log)"
 
         if result.scribe_error:
@@ -260,7 +312,6 @@ def _run_unified_courtroom_demo(
         transcript_block = "\n\n".join(result.transcript_rich_lines) or "(empty)"
 
         label = LANG_LABELS.get(target_language, target_language)
-        trans_md = f"### Translation ({label})\n\n*(waiting for `model_pipeline_dag` / CSV…)*"
 
         detail_md = (
             f"### Language\n\n**{result.language_display}** (scribe code: `{result.language_code or '?'}`)\n\n"
@@ -268,6 +319,10 @@ def _run_unified_courtroom_demo(
         )
 
         status_md = f"**Pipeline:** {progress}"
+        if skip_local_ml:
+            status_md += "\n\n**Note:** local gender/emotion models were skipped (faster, less detail)."
+        if fast_translate:
+            status_md += "\n\n**Translation path:** on-host (no Airflow CSV wait)."
         if result.tts_error:
             status_md += f"\n\n**Summary TTS:** {result.tts_error}"
 
@@ -279,13 +334,63 @@ def _run_unified_courtroom_demo(
             sum_path = spath
 
         tr_path: str | None = None
+        cfg_id = (translation_config_id or DEFAULT_TRANSLATION_CONFIG_ID).strip() or DEFAULT_TRANSLATION_CONFIG_ID
+
+        if fast_translate:
+            raw_t = (result.transcript_plain or "").strip()
+            trans_md: str
+            if not raw_t:
+                trans_md = f"### Translation ({label})\n\n*(empty transcript — nothing to translate)*"
+            else:
+                from backend.src.services.gemini_translation import translate_text  # noqa: PLC0415
+
+                status_md += "\n\n**Translating on host** (no Airflow wait)…"
+                try:
+                    sl = scribe_language_code_for_translation(result.language_code)
+                    lt = translate_text(
+                        source_text=raw_t,
+                        source_language=sl,
+                        target_language=target_language,
+                        config_id=cfg_id,
+                    )
+                except Exception as e:  # noqa: BLE001
+                    trans_md = f"### Translation ({label})\n\n**On-host translate failed:** `{e}`"
+                else:
+                    trans_md = f"### Translation ({label}, on-host / fast)\n\n{lt}"
+                    b_mp3, b_err = synthesize_speech_mp3(lt)
+                    if b_mp3:
+                        tfd2, tpath2 = tempfile.mkstemp(suffix=".mp3")
+                        os.close(tfd2)
+                        Path(tpath2).write_bytes(b_mp3)
+                        tr_path = tpath2
+                    if b_err:
+                        trans_md += f"\n\n*Translation TTS:* {b_err}"
+
+            if airflow_background:
+                try:
+                    note, _ = _airflow_chain_note_from_src(
+                        chain_ingest_path,
+                        split=airflow_split,
+                        target_language=target_language,
+                        rerun_config_search=airflow_rerun_config,
+                        manifest_tail=manifest_tail,
+                        wait_for_csv=False,
+                        translation_config_id=translation_config_id,
+                        local_scribe_transcript=result.transcript_plain,
+                    )
+                    status_md += note
+                except Exception as e:  # noqa: BLE001
+                    status_md += f"\n\n**Background Airflow:** `{e}`"
+            return (status_md, trans_md, sum_path, tr_path, detail_md)
+
+        trans_md = f"### Translation ({label})\n\n*(waiting for Airflow `{_active_dag_id()}` / CSV…)*"
 
         def _no_dag_translation(msg: str) -> None:
             nonlocal trans_md, status_md
             status_md += f"\n\n**No DAG translation in UI** — {msg}"
             trans_md = (
                 f"### Translation ({label})\n\n"
-                "*This app only shows translation from **`model_pipeline_dag`** (predictions CSV).*\n\n"
+                f"*Translation in this mode comes from the Airflow DAG (**`{_active_dag_id()}`**) CSV.*\n\n"
                 f"{msg}"
             )
 
@@ -297,13 +402,14 @@ def _run_unified_courtroom_demo(
                 rerun_config_search=airflow_rerun_config,
                 manifest_tail=manifest_tail,
                 wait_for_csv=wait_for_airflow_csv,
+                translation_config_id=translation_config_id,
                 local_scribe_transcript=result.transcript_plain,
             )
             status_md += note
 
             use_batch = batch_text is not None and "[EMPTY_TRANSCRIPT]" not in batch_text
             if use_batch:
-                trans_md = f"### Translation ({label}, from `model_pipeline_dag`)\n\n{batch_text}"
+                trans_md = f"### Translation ({label}, from `{_active_dag_id()}`)\n\n{batch_text}"
                 b_mp3, b_err = synthesize_speech_mp3(batch_text)
                 if b_mp3:
                     tfd2, tpath2 = tempfile.mkstemp(suffix=".mp3")
@@ -350,21 +456,20 @@ def build_demo() -> gr.Blocks:
     with gr.Blocks(title="IIKSHANA — Courtroom Accessibility", theme=gr.themes.Soft()) as demo:
         gr.Markdown(
             "# IIKSHANA\n"
-            "**Single pipeline:** ElevenLabs **Scribe v2** → **inaSpeechSegmenter** + **emotion2vec+** (host; needs "
-            "`torchaudio`) → **ElevenLabs TTS** (spoken summary) → **ingest + `model_pipeline_dag`** (Docker: batch "
-            "translation written to **predictions CSV**) → **ElevenLabs TTS** (that translated text). "
-            "**Translation in the UI is only from the DAG** (no separate local translator).\n\n"
-            "**Wait for DAG translation:** after triggering the DAG, the server **re-reads the CSV every ~12s** until it "
-            "finds the row for **your** ingested file (or hits the long timeout). That is how the app gets the string for "
-            "the Translation box and for translation TTS—Airflow writes the file asynchronously.\n\n"
-            "Airflow: keys in **`airflow/.env`** or **`.secrets/.env`** (loaded by compose **`env_file`**); "
-            "**`docker compose down && docker compose up`** after changes. Prior **EXPO** clips/CSV rows are cleared on each ingest; "
-            "**.scribe.txt** supplies batch `source_text` if container STT is empty.\n\n"
-            "Local: **`ELEVENLABS_API_KEY`** and **`GROQ_API_KEY`**. Optional **`ELEVENLABS_TTS_VOICE_ID`** or **`ELEVENLABS_TTS_MODEL_ID`**; TTS skips "
-            "Voice Library voices and tries Flash/Turbo models first (free-tier friendly). **ffmpeg** on PATH. **Microphone:** "
-            "**http://127.0.0.1:7860** — record, "
-            "**Stop**, then run.\n\n"
-            "Heavy ML extras: `pip install -r requirements-demo-ui.txt` + `inaSpeechSegmenter` line in that file; **Preload** once."
+            "**ElevenLabs** provides **Scribe** (STT + diarization) and **TTS**. **Gender** (**inaSpeechSegmenter**) and "
+            "**emotion** (**emotion2vec+**) run **on your machine** (see `requirements-demo-ui.txt`) — they are **not** "
+            "ElevenLabs APIs.\n\n"
+            "**Fast translate (default on):** after local analysis, **on-host translation** + **translation TTS** — **no** "
+            "wait for Airflow CSV. Uncheck it for **batch** mode: translation from **`expo_translation_dag`** CSV.\n\n"
+            "**Skip local gender/emotion** — optional; faster runs but **unknown** gender/emotion. Default **off** so "
+            "behavior matches the full demo. Env: **`IIKSHANA_SKIP_LOCAL_ML=1`** to default the checkbox on.\n\n"
+            "**Background Airflow** (with fast translate): ingest + trigger **without** CSV wait. Batch mode: **Wait for DAG "
+            "translation** + **`EXPO_POLL_SEC`** (default **1** s). **`AIRFLOW_MODEL_DAG_ID=model_pipeline_dag`** for BLEU "
+            "config search.\n\n"
+            "Keys: **`ELEVENLABS_API_KEY`**, **`GROQ_API_KEY`**, Airflow **`airflow/.env`**. **`IIKSHANA_REALTIME_MODE=0`** "
+            "defaults UI to **batch** translate path.\n\n"
+            "Install **`requirements-demo-ui.txt`** + **`inaSpeechSegmenter`** (see that file) for gender/emotion; **Preload** "
+            "warms models."
         )
 
         with gr.Accordion("Optional: preload gender / emotion models (first run can be slow)", open=False):
@@ -373,26 +478,48 @@ def build_demo() -> gr.Blocks:
             preload_btn.click(_preload_models, outputs=preload_msg)
 
         with gr.Row():
+            fast_translate_cb = gr.Checkbox(
+                label="Fast translate (on-host; no Airflow CSV wait)",
+                value=_default_fast_translate(),
+            )
+            skip_ml_cb = gr.Checkbox(
+                label="Skip local gender/emotion models (faster; optional)",
+                value=_default_skip_local_ml(),
+            )
+            airflow_bg_cb = gr.Checkbox(
+                label="Also ingest + trigger Airflow in background (fast-translate only; no wait)",
+                value=False,
+            )
+
+        with gr.Row():
             target_language = gr.Dropdown(
                 choices=["es", "fr", "de"],
                 value="es",
-                label="Translate to (passed to model_pipeline_dag)",
+                label="Translate to (target_language)",
+            )
+            translation_config = gr.Dropdown(
+                choices=TRANSLATION_CONFIG_CHOICES,
+                value=DEFAULT_TRANSLATION_CONFIG_ID,
+                label="Translation config_id (on-host + Airflow; under config/models/)",
             )
 
         with gr.Row():
             chain_split = gr.Dropdown(
-                list(VALID_SPLITS), value="dev", label="DAG split (ingest + model_pipeline_dag)"
+                list(VALID_SPLITS), value="dev", label="DAG split (ingest + translation DAG)"
             )
             chain_manifest_tail = gr.Number(
-                label="Manifest tail (DAG)",
-                value=200,
+                label="Manifest tail (last N manifest rows; use 1 for single EXPO clip)",
+                value=DEFAULT_MANIFEST_TAIL,
                 precision=0,
                 minimum=1,
                 maximum=500,
             )
-            chain_rerun_cfg = gr.Checkbox(label="DAG: re-run config search", value=False)
+            chain_rerun_cfg = gr.Checkbox(
+                label="model_pipeline_dag only: re-run config search",
+                value=False,
+            )
             chain_wait_csv = gr.Checkbox(
-                label="Wait for DAG translation (poll predictions CSV until this file’s row appears)",
+                label="Batch mode (fast translate off): wait for DAG translation",
                 value=True,
             )
 
@@ -406,7 +533,7 @@ def build_demo() -> gr.Blocks:
         main_audio.upload(fn=_audio_ready_hint, outputs=main_audio_hint)
 
         run_btn = gr.Button(
-            "Run: Scribe → analysis → summary TTS → model_pipeline_dag translation → translation TTS",
+            "Run: Scribe → (optional ML) → summary TTS → translate → translation TTS",
             variant="primary",
         )
 
@@ -429,6 +556,10 @@ def build_demo() -> gr.Blocks:
                 chain_manifest_tail,
                 chain_rerun_cfg,
                 chain_wait_csv,
+                translation_config,
+                fast_translate_cb,
+                airflow_bg_cb,
+                skip_ml_cb,
             ],
             outputs=[
                 unified_status,

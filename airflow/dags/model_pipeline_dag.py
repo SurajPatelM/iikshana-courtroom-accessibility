@@ -5,6 +5,9 @@ This DAG is separate from the data pipeline. It assumes data has already been
 pulled / produced (for example by the full_pipeline_dag's initial DVC pull and
 subsequent stages) and therefore **does not perform any DVC operations itself**.
 
+For **low-latency EXPO / production-style inference** without config search, use
+``expo_translation_dag`` instead (triggered by default from ``demo/gradio_expo_app.py``).
+
 - schedule: None (manual trigger only)
 - Not triggered by full_pipeline_dag
 - Tags: model, model-pipeline

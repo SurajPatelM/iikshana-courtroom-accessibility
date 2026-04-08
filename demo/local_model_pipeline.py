@@ -176,19 +176,55 @@ def run_full_model_pipeline(
     )
 
 
+def _read_prediction_row(
+    pred: Path,
+    key: str,
+    config_label: str,
+) -> tuple[str, Path, str] | None:
+    try:
+        df = pd.read_csv(pred)
+        if "file" not in df.columns or "translated_text_model" not in df.columns:
+            return None
+        sub = df[df["file"].astype(str) == key]
+        if sub.empty:
+            return None
+        return (
+            str(sub.iloc[0]["translated_text_model"]).strip(),
+            pred.resolve(),
+            config_label,
+        )
+    except (OSError, ValueError):
+        return None
+
+
 def try_read_pipeline_translation(
     repo_root: Path,
     split: str,
     manifest_file: str,
+    *,
+    config_id: str | None = None,
 ) -> tuple[str, Path, str] | None:
     """
     If Airflow (or a local run) has finished, read the translation for ``manifest_file`` from disk.
     Checks ``data/model_runs/<split>`` then ``data/processed/<split>``.
+
+    When ``config_id`` is set (``expo_translation_dag``), reads
+    ``translation_predictions_<config_id>.csv`` first. Otherwise uses ``config_search_results.json``
+    to pick the best config (``model_pipeline_dag``).
     """
     repo_root = repo_root.resolve()
     model_split = repo_root / "data" / "model_runs" / split
     processed_split = repo_root / "data" / "processed" / split
     key = Path(manifest_file).name
+
+    cid = (config_id or "").strip()
+    if cid:
+        for pred_parent in (model_split, processed_split):
+            pred = pred_parent / f"translation_predictions_{cid}.csv"
+            if pred.is_file():
+                got = _read_prediction_row(pred, key, cid)
+                if got is not None:
+                    return got
 
     for cfg_parent in (model_split, processed_split):
         cfg_path = cfg_parent / "config_search_results.json"
@@ -205,20 +241,9 @@ def try_read_pipeline_translation(
             pred = pred_parent / f"translation_predictions_{best}.csv"
             if not pred.is_file():
                 continue
-            try:
-                df = pd.read_csv(pred)
-                if "file" not in df.columns or "translated_text_model" not in df.columns:
-                    continue
-                sub = df[df["file"].astype(str) == key]
-                if sub.empty:
-                    continue
-                return (
-                    str(sub.iloc[0]["translated_text_model"]).strip(),
-                    pred.resolve(),
-                    best,
-                )
-            except (OSError, ValueError):
-                continue
+            got = _read_prediction_row(pred, key, best)
+            if got is not None:
+                return got
     return None
 
 

@@ -1,5 +1,16 @@
-# Optional: full "UI audio analysis" tab in demo/gradio_expo_app.py (gender + emotion). ffmpeg on PATH.
+# Optional: full "UI audio analysis" in demo/gradio_expo_app.py (gender + emotion).
 # Base expo UI: pip install -r requirements.txt (includes gradio + elevenlabs).
+#
+# --- ffmpeg (system install; not on PyPI) ---
+# inaSpeechSegmenter expects the ``ffmpeg`` binary on your PATH. Without it you often see
+# "ffmpeg program not found" and gender stays "unknown".
+#
+#   macOS (Homebrew):   brew install ffmpeg
+#   Debian/Ubuntu:      sudo apt update && sudo apt install -y ffmpeg
+#   Fedora:             sudo dnf install ffmpeg
+#   Windows:            https://ffmpeg.org/download.html  (or ``choco install ffmpeg`` / ``winget install ffmpeg``)
+#
+# Verify:  ffmpeg -version
 #
 # PyPI inaSpeechSegmenter declares onnxruntime-gpu (no macOS / Py3.13 wheels). GitHub expects
 # onnxruntime-silicon (no Py3.13 wheels). Use CPU onnxruntime + install segmenter without deps.
