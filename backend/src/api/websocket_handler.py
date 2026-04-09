@@ -20,7 +20,6 @@ from ..models.schemas import (
     TranscriptSegment,
     WSStatusUpdate,
     WSConfigMessage,
-    WSAudioMessage,
 )
 from ..services.realtime_audio_service import RealtimeAudioSession
 from ..services.gemini_translation import translate_text
@@ -65,7 +64,7 @@ async def _send_transcript(
         first = words[0]
         # ElevenLabs words have speaker_id and start attributes
         speaker_id = getattr(first, "speaker_id", None) or "speaker_0"
-        start_time = getattr(first, "start", 0.0) or 0.0
+        start_time = float(getattr(first, "start", 0.0) or 0.0)
 
     segment = TranscriptSegment(
         speaker_id=speaker_id,
@@ -139,9 +138,20 @@ async def audio_websocket(websocket: WebSocket) -> None:
                     continue
 
                 audio_bytes = base64.b64decode(b64_data)
-                # Frontend sends ArrayBuffer as int16 PCM
+
+                # Guard: int16 requires buffer size to be a multiple of 2 bytes.
+                # Browser AudioContext may produce odd-length buffers — trim last byte if needed.
+                if len(audio_bytes) % 2 != 0:
+                    audio_bytes = audio_bytes[:-1]
+
+                # Skip empty chunks after trimming
+                if len(audio_bytes) == 0:
+                    continue
+
+                # Convert bytes to int16 numpy array
                 chunk = np.frombuffer(audio_bytes, dtype=np.int16)
-                # Sample rate comes from config — frontend uses browser default (usually 44100 or 48000)
+
+                # Sample rate from env var — browser default is usually 44100 or 48000
                 sample_rate = int(os.environ.get("AUDIO_SAMPLE_RATE", "44100"))
 
                 # Run handle_chunk in thread pool to avoid blocking the event loop
@@ -183,7 +193,11 @@ async def audio_websocket(websocket: WebSocket) -> None:
                 break
 
             else:
-                logger.warning("Session %s received unknown message type: %s", session_id, msg_type)
+                logger.warning(
+                    "Session %s received unknown message type: %s",
+                    session_id,
+                    msg_type,
+                )
 
     except WebSocketDisconnect:
         logger.info("Session %s disconnected", session_id)
@@ -196,7 +210,7 @@ async def audio_websocket(websocket: WebSocket) -> None:
             pass
 
     finally:
-        # Always clean up session
+        # Always clean up session on disconnect or error
         if session:
             session.close()
         if session_id in _active_sessions:
