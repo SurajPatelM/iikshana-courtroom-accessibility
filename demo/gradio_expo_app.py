@@ -45,6 +45,7 @@ def _load_repo_dotenv() -> None:
 _load_repo_dotenv()
 
 from demo.airflow_trigger import trigger_model_pipeline_dag
+from demo.live_translation import make_initial_state, process_audio_chunk
 from demo.local_model_pipeline import try_read_pipeline_translation
 from demo.pipeline_ingest import VALID_SPLITS, ingest_expo_recording
 
@@ -568,6 +569,142 @@ def build_demo() -> gr.Blocks:
                 unified_tts_translation,
                 unified_detail,
             ],
+        )
+
+        # ------------------------------------------------------------------ #
+        #  LIVE TRANSLATION SECTION                                            #
+        # ------------------------------------------------------------------ #
+        gr.Markdown("---\n## Live Translation")
+        gr.Markdown(
+            "Speak continuously — translation happens automatically after each utterance "
+            "(silence gap = end of utterance). No submit button needed.\n\n"
+            "**I am wearing headphones** → enables live mode **with audio (TTS) output**.\n\n"
+            "**Bypass headphone check (demo mode)** → enables live mode with **text output only** "
+            "(no TTS, safe without headphones)."
+        )
+
+        with gr.Row():
+            headphone_cb = gr.Checkbox(label="I am wearing headphones", value=False)
+            bypass_headphone_cb = gr.Checkbox(label="Bypass headphone check (demo mode)", value=False)
+
+        live_toggle_btn = gr.Button("Start Live Translation", variant="primary")
+        live_status_md = gr.Markdown("*Live translation is off.*")
+
+        live_audio = gr.Audio(
+            sources=["microphone"],
+            streaming=True,
+            type="numpy",
+            label="Live microphone (click mic button to start / stop speaking)",
+            visible=False,
+        )
+
+        live_output_box = gr.Textbox(
+            label="Live Translation Output",
+            value="",
+            lines=8,
+            max_lines=20,
+            interactive=False,
+            placeholder="Translated utterances will appear here…",
+            visible=False,
+        )
+
+        # TTS audio output — only shown when headphones are confirmed
+        live_tts_audio = gr.Audio(
+            label="Live TTS (translated speech)",
+            type="filepath",
+            autoplay=True,
+            visible=False,
+        )
+
+        clear_live_btn = gr.Button("Clear output", size="sm", visible=False)
+
+        # Server-side state
+        live_state = gr.State(value=make_initial_state())
+        is_live_state = gr.State(value=False)
+
+        # --- Toggle logic ---------------------------------------------------
+        def _toggle_live(is_live: bool, headphones: bool, bypass: bool, state: dict):
+            if not is_live:
+                # Gate: need at least one box checked
+                if not headphones and not bypass:
+                    return (
+                        False,
+                        gr.update(value="Start Live Translation", variant="primary"),
+                        gr.update(visible=False),   # live_audio
+                        gr.update(visible=False),   # live_output_box
+                        gr.update(visible=False),   # live_tts_audio
+                        gr.update(visible=False),   # clear_live_btn
+                        "**Headphones required.** Tick *I am wearing headphones* (enables audio output) "
+                        "or *Bypass headphone check (demo mode)* (text output only).",
+                        state,                      # live_state unchanged
+                    )
+
+                tts_on = headphones and not bypass
+                mode_note = (
+                    "**Live translation active — audio + text output** (headphones mode)."
+                    if tts_on else
+                    "**Live translation active — text output only** (demo / bypass mode)."
+                )
+                return (
+                    True,
+                    gr.update(value="Stop Live Translation", variant="stop"),
+                    gr.update(visible=True),        # live_audio
+                    gr.update(visible=True),        # live_output_box
+                    gr.update(visible=tts_on),      # live_tts_audio — only when headphones
+                    gr.update(visible=True),        # clear_live_btn
+                    mode_note + " Click the microphone button to start speaking.",
+                    make_initial_state(),           # RESET state on every fresh start
+                )
+
+            # Turning OFF
+            return (
+                False,
+                gr.update(value="Start Live Translation", variant="primary"),
+                gr.update(visible=False),           # live_audio — hide
+                gr.update(visible=True),            # live_output_box — keep for reading
+                gr.update(visible=False),           # live_tts_audio — hide
+                gr.update(visible=True),            # clear_live_btn — keep
+                "Live translation stopped.",
+                state,                              # preserve output history
+            )
+
+        live_toggle_btn.click(
+            _toggle_live,
+            inputs=[is_live_state, headphone_cb, bypass_headphone_cb, live_state],
+            outputs=[
+                is_live_state, live_toggle_btn, live_audio,
+                live_output_box, live_tts_audio, clear_live_btn,
+                live_status_md, live_state,
+            ],
+        )
+
+        # --- Stream handler -------------------------------------------------
+        def _live_stream_handler(chunk_data, state, target_lang, config_id, headphones):
+            tts_enabled = bool(headphones)
+            state, output, status, audio_path = process_audio_chunk(
+                chunk_data, state, target_lang, config_id, tts_enabled
+            )
+            # Return gr.update() (no-op) when no new audio to avoid clearing the player
+            audio_update = audio_path if audio_path is not None else gr.update()
+            return state, output, status, audio_update
+
+        live_audio.stream(
+            fn=_live_stream_handler,
+            inputs=[live_audio, live_state, target_language, translation_config, headphone_cb],
+            outputs=[live_state, live_output_box, live_status_md, live_tts_audio],
+        )
+
+        # --- Clear button ---------------------------------------------------
+        def _clear_live(state: dict):
+            state = dict(state)
+            state["full_output"] = ""
+            state["utterance_count"] = 0
+            return state, ""
+
+        clear_live_btn.click(
+            _clear_live,
+            inputs=[live_state],
+            outputs=[live_state, live_output_box],
         )
 
     return demo
