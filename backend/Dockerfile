@@ -19,6 +19,7 @@ RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir \
     fastapi \
     "uvicorn[standard]" \
+    python-multipart \
     websockets \
     pydantic \
     python-dotenv \
@@ -32,6 +33,9 @@ RUN pip install --no-cache-dir --upgrade pip && \
     elevenlabs \
     groq \
     httpx
+
+# Tell Python code where the repo root is inside the container
+ENV REPO_ROOT=/app
 
 # Copy all necessary folders
 # backend/src — main application code
@@ -49,10 +53,10 @@ COPY prompts ./prompts
 # Expose port
 EXPOSE 8000
 
-# Health check
+# Health check (use PORT env var so it works on Cloud Run where PORT=8080)
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" || exit 1
+    CMD python -c "import os, urllib.request; urllib.request.urlopen(f'http://localhost:{os.environ.get(\"PORT\",\"8000\")}/health')" || exit 1
 
 # Run the application
 # PORT env var allows overriding the port at runtime
-CMD ["sh", "-c", "uvicorn src.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+CMD ["sh", "-c", "uvicorn src.main:app --host 0.0.0.0 --port ${PORT:-8080}"]

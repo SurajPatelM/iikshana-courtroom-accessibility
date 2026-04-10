@@ -20,18 +20,16 @@ from .groq_service import GroqClient
 from .hf_service import HuggingFaceClient
 
 
-# In Docker containers the repository root is mounted at /workspace. When that
-# path does not exist (e.g. local Python run on the host), fall back to the
-# project root by walking up from backend/src/services to the repo root.
+# Resolve the repository root.
+# In Docker the env var REPO_ROOT is set to /app.  On Cloud Build it may be
+# /workspace.  Locally we fall back to walking up from this file.
+import os as _os
 _this_file = Path(__file__).resolve()
-if Path("/workspace").exists():
+if _os.environ.get("REPO_ROOT"):
+    REPO_ROOT = Path(_os.environ["REPO_ROOT"])
+elif Path("/workspace").exists():
     REPO_ROOT = Path("/workspace")
 else:
-    # backend/src/services/gemini_translation.py -> repo root is parents[3]
-    # .../backend/src/services -> parents[0]
-    # .../backend/src         -> parents[1]
-    # .../backend             -> parents[2]
-    # .../                    -> parents[3]
     REPO_ROOT = _this_file.parents[3]
 CONFIG_DIR = REPO_ROOT / "config" / "models"
 PROMPTS_DIR = REPO_ROOT / "prompts"

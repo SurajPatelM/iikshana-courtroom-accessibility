@@ -44,8 +44,9 @@ _jobs: dict[str, JobEntry] = {}
 # ---------------------------------------------------------------------------
 # Repo root resolution — needed to import demo/ modules
 # demo/audio_analysis_pipeline.py lives outside backend/src/
+# In Docker (WORKDIR /app) the env var REPO_ROOT is set; locally we walk up.
 # ---------------------------------------------------------------------------
-_REPO_ROOT = Path(__file__).resolve().parents[4]
+_REPO_ROOT = Path(os.environ["REPO_ROOT"]) if "REPO_ROOT" in os.environ else Path(__file__).resolve().parents[4]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
