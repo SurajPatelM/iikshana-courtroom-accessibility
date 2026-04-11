@@ -56,6 +56,11 @@ jobs:
           gcloud run deploy iikshana-backend \
             --image us-east4-docker.pkg.dev/iikshana-mlops/iikshana-docker/iikshana-backend:latest \
             --region us-east4 \
+            --startup-cpu-boost \
+            --timeout=600 \
+            --port 8080 \
+            --memory 2Gi \
+            --cpu 1 \
             --set-env-vars "PYTHONPATH=${{secrets.PYTHONPATH}},CORS_ORIGINS=${{secrets.FRONTEND}},ELEVENLABS_API_KEY=${{ secrets.ELEVENLABS_API_KEY }},GROQ_API_KEY=${{ secrets.GROQ_API_KEY }}" \
             --quiet
 
