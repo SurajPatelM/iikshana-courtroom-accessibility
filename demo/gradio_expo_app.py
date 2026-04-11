@@ -19,6 +19,7 @@ import soundfile as sf
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEMO_DIR = Path(__file__).resolve().parent
 EXPO_MIC_SVG = DEMO_DIR / "assets" / "mic_glyph.svg"
+EXPO_LOGO = DEMO_DIR / "assets" / "iikshana_logo.png"
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
@@ -100,6 +101,40 @@ CUSTOM_CSS = """
 
 html, body {
     background-color: var(--expo-canvas) !important;
+}
+
+/* Brand header: logo + title */
+.gradio-container .expo-header-wrap {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    padding: 8px 0 0 0 !important;
+}
+
+.gradio-container .expo-header-wrap .block {
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+}
+
+.gradio-container .expo-brand-logo,
+.gradio-container .expo-brand-logo > .wrap,
+.gradio-container .expo-brand-logo .image-container {
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+}
+
+.gradio-container .expo-brand-logo img {
+    max-height: clamp(72px, 20vw, 120px) !important;
+    width: auto !important;
+    max-width: min(340px, 92vw) !important;
+    object-fit: contain !important;
+    margin: 0 auto !important;
+    display: block !important;
 }
 
 /* Force dark background everywhere */
@@ -495,10 +530,16 @@ def _default_skip_local_ml() -> bool:
 # CLEAN HTML COMPONENTS
 # =============================================================================
 
-def header_html() -> str:
-    return """
-    <div style="text-align:center; padding:10px 0 8px 0; padding-left:max(0px, env(safe-area-inset-left)); padding-right:max(0px, env(safe-area-inset-right));">
+def header_html(*, show_wordmark: bool = True) -> str:
+    """Title under optional logo. When logo asset is present, hide small IIKSHANA wordmark (logo already includes it)."""
+    wordmark = ""
+    if show_wordmark:
+        wordmark = """
         <p style="margin:0 0 4px 0; font-size:clamp(10px, 2.8vw, 11px); letter-spacing:2px; color:#666; text-transform:uppercase;">IIKSHANA</p>
+        """
+    return f"""
+    <div style="text-align:center; padding:10px 0 8px 0; padding-left:max(0px, env(safe-area-inset-left)); padding-right:max(0px, env(safe-area-inset-right));">
+        {wordmark}
         <h1 style="margin:0; font-size:clamp(1.15rem, 5vw, 1.5rem); font-weight:600; color:#f5f5f5; line-height:1.2;">Courtroom audio assistant</h1>
     </div>
     """
@@ -730,8 +771,20 @@ def build_demo() -> gr.Blocks:
         fill_width=True,
     ) as demo:
         
-        # Header
-        gr.HTML(header_html())
+        # Header: brand logo (PNG) + page title
+        with gr.Column(elem_classes=["expo-header-wrap"], scale=0):
+            if EXPO_LOGO.is_file():
+                gr.Image(
+                    value=str(EXPO_LOGO),
+                    show_label=False,
+                    show_download_button=False,
+                    show_fullscreen_button=False,
+                    container=False,
+                    interactive=False,
+                    scale=0,
+                    elem_classes=["expo-brand-logo"],
+                )
+            gr.HTML(header_html(show_wordmark=not EXPO_LOGO.is_file()))
 
         # Listening / speaking language (dropdowns inside paired cards)
         with gr.Row(equal_height=True, elem_classes=["lang-pair-row"]):
