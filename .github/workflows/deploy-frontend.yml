@@ -41,6 +41,10 @@ jobs:
       - name: Authenticate Docker to Artifact Registry
         run: gcloud auth configure-docker us-east4-docker.pkg.dev --quiet
 
+      - name: Change directory to frontend
+        run: |
+          cd frontend
+
       - name: Build Docker image
         run: |
           docker build \
