@@ -59,7 +59,7 @@ elevenlabs>=1.0.0
 
 # Real-time audio preprocessing VAD backends
 silero-vad>=5.0
-webrtcvad>=2.0.10
+webrtcvad-wheels>=2.0.10
 
 # Utilities
 python-dotenv>=1.0.0

@@ -16,23 +16,7 @@ RUN apt-get update && apt-get install -y \
 # Copy requirements and install Python dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir \
-    fastapi \
-    "uvicorn[standard]" \
-    python-multipart \
-    websockets \
-    pydantic \
-    python-dotenv \
-    pyyaml \
-    requests \
-    numpy \
-    scipy \
-    librosa \
-    soundfile \
-    google-genai>=1.0.0 \
-    elevenlabs \
-    groq \
-    httpx
+    pip install --no-cache-dir -r requirements.txt
 
 # Tell Python code where the repo root is inside the container
 ENV REPO_ROOT=/app
