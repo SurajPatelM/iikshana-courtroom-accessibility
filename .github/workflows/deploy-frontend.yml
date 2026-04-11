@@ -41,16 +41,12 @@ jobs:
       - name: Authenticate Docker to Artifact Registry
         run: gcloud auth configure-docker us-east4-docker.pkg.dev --quiet
 
-      - name: Change directory to frontend
-        run: |
-          cd frontend
-
       - name: Build Docker image
         run: |
           docker build \
             --no-cache \
             -t us-east4-docker.pkg.dev/iikshana-mlops/iikshana-docker/iikshana-frontend:latest \
-            -f frontend/Dockerfile .
+            -f frontend/Dockerfile frontend/
 
       - name: Push Docker image
         run: |
