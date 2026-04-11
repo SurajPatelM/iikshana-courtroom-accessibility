@@ -56,7 +56,7 @@ jobs:
           gcloud run deploy iikshana-backend \
             --image us-east4-docker.pkg.dev/iikshana-mlops/iikshana-docker/iikshana-backend:latest \
             --region us-east4 \
-            --startup-cpu-boost \
+            --cpu-boost \
             --timeout=600 \
             --port 8080 \
             --memory 2Gi \
