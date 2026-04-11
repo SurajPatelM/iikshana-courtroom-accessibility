@@ -17,6 +17,12 @@ from typing import Any
 import numpy as np
 import soundfile as sf
 
+from demo.visual_captioning import (
+    CaptionState,
+    flush_pending_caption,
+    maybe_capture_and_caption,
+)
+
 # ---------------------------------------------------------------------------
 # VAD tuning constants
 # ---------------------------------------------------------------------------
@@ -40,7 +46,29 @@ def make_initial_state() -> dict:
         "speech_detected": False, # True once speech seen in current utterance
         "full_output": "",        # accumulated markdown translation history
         "utterance_count": 0,     # total utterances processed this session
+        "caption_state": CaptionState(),
     }
+
+
+def _flush_caption_if_audio_idle(
+    state: dict,
+    target_language: str,
+    config_id: str,
+) -> None:
+    """Append queued visual caption only when not in an active utterance (VAD)."""
+    if state.get("speech_detected", False):
+        return
+    cs = state.get("caption_state")
+    if not isinstance(cs, CaptionState):
+        return
+    caption_text, new_cs = flush_pending_caption(
+        cs,
+        target_language=target_language,
+        config_id=config_id,
+    )
+    state["caption_state"] = new_cs
+    if caption_text:
+        state["full_output"] = state.get("full_output", "") + caption_text
 
 
 def process_audio_chunk(
@@ -49,6 +77,7 @@ def process_audio_chunk(
     target_language: str,
     config_id: str,
     tts_enabled: bool = False,
+    video_frame: np.ndarray | None = None,
 ) -> tuple[dict, str, str, str | None]:
     """
     Process one streaming audio chunk from Gradio.
@@ -60,6 +89,7 @@ def process_audio_chunk(
     target_language: e.g. "es", "fr", "de"
     config_id      : translation config ID (e.g. "translation_flash_v1")
     tts_enabled    : if True, synthesise TTS audio for the translated text
+    video_frame    : latest webcam frame (numpy) for optional visual captioning; None skips camera path
 
     Returns
     -------
@@ -67,25 +97,35 @@ def process_audio_chunk(
     tts_audio_path is a temp .mp3 filepath when tts_enabled and translation succeeded,
     otherwise None (caller should pass gr.update() to the Audio component).
     """
+    state = dict(state)
+    state.setdefault("caption_state", CaptionState())
+
+    if video_frame is not None:
+        state["caption_state"] = maybe_capture_and_caption(
+            video_frame, state["caption_state"]
+        )
+
     if chunk_data is None:
+        _flush_caption_if_audio_idle(state, target_language, config_id)
         return state, state.get("full_output", ""), "", None
 
     if not (isinstance(chunk_data, (tuple, list)) and len(chunk_data) == 2):
+        _flush_caption_if_audio_idle(state, target_language, config_id)
         return state, state.get("full_output", ""), "Unexpected audio format — skipping chunk.", None
 
     src_sr, raw_samples = chunk_data
     if raw_samples is None:
+        _flush_caption_if_audio_idle(state, target_language, config_id)
         return state, state.get("full_output", ""), "", None
 
     samples = _to_16k_mono_float32(np.asarray(raw_samples), int(src_sr))
     if samples.size == 0:
+        _flush_caption_if_audio_idle(state, target_language, config_id)
         return state, state.get("full_output", ""), "", None
 
     rms = float(np.sqrt(np.mean(samples ** 2)))
     is_speech = rms > _ENERGY_THRESHOLD
 
-    # Shallow copy so gr.State detects the mutation
-    state = dict(state)
     state["audio_buffer"] = list(state.get("audio_buffer", []))
     status = ""
 
@@ -110,6 +150,7 @@ def process_audio_chunk(
             state["silence_frames"] = 0
 
             if duration < _MIN_UTTERANCE_SECONDS:
+                _flush_caption_if_audio_idle(state, target_language, config_id)
                 return state, state.get("full_output", ""), "Short noise burst — ignored.", None
 
             state["utterance_count"] = state.get("utterance_count", 0) + 1
@@ -120,10 +161,12 @@ def process_audio_chunk(
             )
             if display_text:
                 state["full_output"] = state.get("full_output", "") + display_text
+            _flush_caption_if_audio_idle(state, target_language, config_id)
             return state, state.get("full_output", ""), status, audio_path
 
         return state, state.get("full_output", ""), "End of utterance detected…", None
 
+    _flush_caption_if_audio_idle(state, target_language, config_id)
     return state, state.get("full_output", ""), "Waiting for speech…", None
 
 

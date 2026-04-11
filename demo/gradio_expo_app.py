@@ -46,6 +46,7 @@ _load_repo_dotenv()
 
 from demo.airflow_trigger import trigger_model_pipeline_dag
 from demo.live_translation import make_initial_state, process_audio_chunk
+from demo.visual_captioning import CaptionState
 from demo.local_model_pipeline import try_read_pipeline_translation
 from demo.pipeline_ingest import VALID_SPLITS, ingest_expo_recording
 
@@ -467,8 +468,10 @@ def build_demo() -> gr.Blocks:
             "**Background Airflow** (with fast translate): ingest + trigger **without** CSV wait. Batch mode: **Wait for DAG "
             "translation** + **`EXPO_POLL_SEC`** (default **1** s). **`AIRFLOW_MODEL_DAG_ID=model_pipeline_dag`** for BLEU "
             "config search.\n\n"
-            "Keys: **`ELEVENLABS_API_KEY`**, **`GROQ_API_KEY`**, Airflow **`airflow/.env`**. **`IIKSHANA_REALTIME_MODE=0`** "
-            "defaults UI to **batch** translate path.\n\n"
+            "Keys: **`ELEVENLABS_API_KEY`**, **`GROQ_API_KEY`** (Groq translation configs), **`GEMINI_API_KEY`** "
+            "(Gemini translation configs only — not used for camera). **Camera captions** use **local Ollama** "
+            "(`ollama serve`, model **`llava:7b`**). Airflow **`airflow/.env`**. "
+            "**`IIKSHANA_REALTIME_MODE=0`** defaults UI to **batch** translate path.\n\n"
             "Install **`requirements-demo-ui.txt`** + **`inaSpeechSegmenter`** (see that file) for gender/emotion; **Preload** "
             "warms models."
         )
@@ -580,12 +583,19 @@ def build_demo() -> gr.Blocks:
             "(silence gap = end of utterance). No submit button needed.\n\n"
             "**I am wearing headphones** → enables live mode **with audio (TTS) output**.\n\n"
             "**Bypass headphone check (demo mode)** → enables live mode with **text output only** "
-            "(no TTS, safe without headphones)."
+            "(no TTS, safe without headphones).\n\n"
+            "**Enable Camera** → optional **Ollama (local LLaVA)** scene descriptions (**`[👁️ Scene]`**) appear only "
+            "during quiet moments so they never interrupt translations. Run **`ollama serve`** and **`ollama pull llava:7b`** "
+            "(default **`http://localhost:11434`**); no API keys for vision."
         )
 
         with gr.Row():
             headphone_cb = gr.Checkbox(label="I am wearing headphones", value=False)
             bypass_headphone_cb = gr.Checkbox(label="Bypass headphone check (demo mode)", value=False)
+            camera_enable_cb = gr.Checkbox(
+                label="Enable Camera (Visual Scene Descriptions)",
+                value=False,
+            )
 
         live_toggle_btn = gr.Button("Start Live Translation", variant="primary")
         live_status_md = gr.Markdown("*Live translation is off.*")
@@ -595,6 +605,13 @@ def build_demo() -> gr.Blocks:
             streaming=True,
             type="numpy",
             label="Live microphone (click mic button to start / stop speaking)",
+            visible=False,
+        )
+
+        live_webcam = gr.Image(
+            sources=["webcam"],
+            streaming=True,
+            label="Courtroom Camera",
             visible=False,
         )
 
@@ -621,9 +638,16 @@ def build_demo() -> gr.Blocks:
         # Server-side state
         live_state = gr.State(value=make_initial_state())
         is_live_state = gr.State(value=False)
+        latest_webcam_frame = gr.State(value=None)
 
         # --- Toggle logic ---------------------------------------------------
-        def _toggle_live(is_live: bool, headphones: bool, bypass: bool, state: dict):
+        def _toggle_live(
+            is_live: bool,
+            headphones: bool,
+            bypass: bool,
+            camera_enabled: bool,
+            state: dict,
+        ):
             if not is_live:
                 # Gate: need at least one box checked
                 if not headphones and not bypass:
@@ -631,11 +655,13 @@ def build_demo() -> gr.Blocks:
                         False,
                         gr.update(value="Start Live Translation", variant="primary"),
                         gr.update(visible=False),   # live_audio
+                        gr.update(visible=False),   # live_webcam
                         gr.update(visible=False),   # live_output_box
                         gr.update(visible=False),   # live_tts_audio
                         gr.update(visible=False),   # clear_live_btn
                         "**Headphones required.** Tick *I am wearing headphones* (enables audio output) "
                         "or *Bypass headphone check (demo mode)* (text output only).",
+                        gr.update(),               # latest_webcam_frame unchanged
                         state,                      # live_state unchanged
                     )
 
@@ -645,15 +671,21 @@ def build_demo() -> gr.Blocks:
                     if tts_on else
                     "**Live translation active — text output only** (demo / bypass mode)."
                 )
+                if camera_enabled:
+                    mode_note += " **Visual scene descriptions** (camera) are on — captions appear in quiet moments only."
+                fresh = make_initial_state()
+                fresh["caption_state"].enabled = bool(camera_enabled)
                 return (
                     True,
                     gr.update(value="Stop Live Translation", variant="stop"),
                     gr.update(visible=True),        # live_audio
+                    gr.update(visible=bool(camera_enabled)),  # live_webcam
                     gr.update(visible=True),        # live_output_box
                     gr.update(visible=tts_on),      # live_tts_audio — only when headphones
                     gr.update(visible=True),        # clear_live_btn
                     mode_note + " Click the microphone button to start speaking.",
-                    make_initial_state(),           # RESET state on every fresh start
+                    None,           # reset latest_webcam_frame for a clean session
+                    fresh,           # RESET state on every fresh start
                 )
 
             # Turning OFF
@@ -661,28 +693,66 @@ def build_demo() -> gr.Blocks:
                 False,
                 gr.update(value="Start Live Translation", variant="primary"),
                 gr.update(visible=False),           # live_audio — hide
+                gr.update(visible=False),           # live_webcam — hide
                 gr.update(visible=True),            # live_output_box — keep for reading
                 gr.update(visible=False),           # live_tts_audio — hide
                 gr.update(visible=True),            # clear_live_btn — keep
                 "Live translation stopped.",
+                None,                               # clear stale webcam buffer
                 state,                              # preserve output history
             )
 
         live_toggle_btn.click(
             _toggle_live,
-            inputs=[is_live_state, headphone_cb, bypass_headphone_cb, live_state],
+            inputs=[
+                is_live_state,
+                headphone_cb,
+                bypass_headphone_cb,
+                camera_enable_cb,
+                live_state,
+            ],
             outputs=[
-                is_live_state, live_toggle_btn, live_audio,
-                live_output_box, live_tts_audio, clear_live_btn,
-                live_status_md, live_state,
+                is_live_state,
+                live_toggle_btn,
+                live_audio,
+                live_webcam,
+                live_output_box,
+                live_tts_audio,
+                clear_live_btn,
+                live_status_md,
+                latest_webcam_frame,
+                live_state,
             ],
         )
 
         # --- Stream handler -------------------------------------------------
-        def _live_stream_handler(chunk_data, state, target_lang, config_id, headphones):
+        def _webcam_frame_for_pipeline(latest_webcam: Any) -> np.ndarray | None:
+            if latest_webcam is None:
+                return None
+            if isinstance(latest_webcam, np.ndarray):
+                return latest_webcam
+            try:
+                return np.asarray(latest_webcam)
+            except Exception:  # noqa: BLE001
+                return None
+
+        def _live_stream_handler(
+            chunk_data,
+            state,
+            target_lang,
+            config_id,
+            headphones,
+            latest_webcam,
+        ):
             tts_enabled = bool(headphones)
+            vf = _webcam_frame_for_pipeline(latest_webcam)
             state, output, status, audio_path = process_audio_chunk(
-                chunk_data, state, target_lang, config_id, tts_enabled
+                chunk_data,
+                state,
+                target_lang,
+                config_id,
+                tts_enabled,
+                video_frame=vf,
             )
             # Return gr.update() (no-op) when no new audio to avoid clearing the player
             audio_update = audio_path if audio_path is not None else gr.update()
@@ -690,15 +760,35 @@ def build_demo() -> gr.Blocks:
 
         live_audio.stream(
             fn=_live_stream_handler,
-            inputs=[live_audio, live_state, target_language, translation_config, headphone_cb],
+            inputs=[
+                live_audio,
+                live_state,
+                target_language,
+                translation_config,
+                headphone_cb,
+                latest_webcam_frame,
+            ],
             outputs=[live_state, live_output_box, live_status_md, live_tts_audio],
+        )
+
+        def _store_latest_webcam_frame(frame: Any) -> Any:
+            return frame if frame is not None else gr.update()
+
+        live_webcam.stream(
+            fn=_store_latest_webcam_frame,
+            inputs=[live_webcam],
+            outputs=[latest_webcam_frame],
+            stream_every=0.5,
         )
 
         # --- Clear button ---------------------------------------------------
         def _clear_live(state: dict):
             state = dict(state)
+            state.setdefault("caption_state", CaptionState())
+            cam_on = bool(state["caption_state"].enabled)
             state["full_output"] = ""
             state["utterance_count"] = 0
+            state["caption_state"] = CaptionState(enabled=cam_on)
             return state, ""
 
         clear_live_btn.click(
