@@ -1,6 +1,7 @@
 name: Deploy Backend
 
 on:
+  workflow_dispatch:
   workflow_run:
     workflows: ["CI"]
     types: [completed]
