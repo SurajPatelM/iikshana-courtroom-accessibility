@@ -5,12 +5,13 @@ WORKDIR /app
 # System dependencies (ffmpeg for inaSpeechSegmenter, libsndfile for soundfile)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
+    python3-dev \
     ffmpeg \
     libsndfile1 \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies
-COPY requirements.txt requirements-demo-ui.txt ./
+COPY requirements.txt ./
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt && \
     pip install --no-cache-dir --no-deps "inaSpeechSegmenter==0.8.0"
@@ -23,9 +24,9 @@ COPY backend/src/services/ ./backend/src/services/
 COPY config/ ./config/
 COPY prompts/ ./prompts/
 
-EXPOSE 7860
+EXPOSE 8080
 
 ENV GRADIO_SERVER_NAME=0.0.0.0
-ENV GRADIO_SERVER_PORT=7860
+ENV GRADIO_SERVER_PORT=8080
 
 CMD ["python", "demo/gradio_expo_app.py"]

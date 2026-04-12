@@ -54,7 +54,12 @@ jobs:
           
       - name: Deploy to Cloud Run
         run: |
-          gcloud run deploy iikshana-frontend --image us-east4-docker.pkg.dev/iikshana-mlops/iikshana-docker/iikshana-frontend:latest --region us-east4
+          gcloud run deploy iikshana-frontend \
+            --image us-east4-docker.pkg.dev/iikshana-mlops/iikshana-docker/iikshana-frontend:latest \
+            --region us-east4 \
+            --port 8080 \
+            --memory 2Gi \
+            --timeout 300
 
       - name: Deployment summary
         run: |
