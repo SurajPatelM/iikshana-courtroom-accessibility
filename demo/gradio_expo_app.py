@@ -545,9 +545,18 @@ def header_html(*, show_wordmark: bool = True) -> str:
     """
 
 
-def mic_status_html(active: bool = False, notice: str | None = None) -> str:
+def mic_status_html(
+    active: bool = False,
+    notice: str | None = None,
+    *,
+    connecting: bool = False,
+) -> str:
     """Caption under the real mic button (class name avoids `[class*=\"block\"]` theme overrides)."""
-    if active:
+    if connecting:
+        status = "Starting…"
+        hint = "Allow microphone access if your browser asks."
+        color = "#94a3b8"
+    elif active:
         status = "Listening..."
         hint = "Tap the microphone to stop"
         color = "#10B981"
@@ -829,8 +838,18 @@ def build_demo() -> gr.Blocks:
                     headphones = gr.Checkbox(label="🎧 Headphones", value=False)
                     text_only = gr.Checkbox(label="📝 Text only", value=False)
 
-                # Hidden audio input
-                live_audio = gr.Audio(sources=["microphone"], streaming=True, type="numpy", visible=False)
+                # Microphone stream (shown when live). Do NOT set recording=True from Python: Gradio's
+                # streaming UI only creates the MediaRecorder inside record(), so recording=True without
+                # a prior record() leaves capture never started and start_recording never fires.
+                live_audio = gr.Audio(
+                    sources=["microphone"],
+                    streaming=True,
+                    type="numpy",
+                    visible=False,
+                    recording=False,
+                    show_label=False,
+                    label="",
+                )
                 
                 # Output area
                 live_output = gr.HTML(value="", visible=False)
@@ -841,6 +860,18 @@ def build_demo() -> gr.Blocks:
                 # State
                 live_state = gr.State(value=make_initial_state())
                 is_live = gr.State(value=False)
+
+                def live_idle_outputs():
+                    """Reset live tab when recording stops (mic button, Audio stop, or clear)."""
+                    return (
+                        False,
+                        mic_status_html(False),
+                        gr.update(elem_classes=["expo-mic-btn"]),
+                        gr.update(visible=False, recording=False, value=None),
+                        gr.update(value="", visible=False),
+                        gr.update(visible=False, value=None),
+                        make_initial_state(),
+                    )
 
                 def toggle_live(is_on, hp, txt, state):
                     idle_btn = gr.update(elem_classes=["expo-mic-btn"])
@@ -854,34 +885,53 @@ def build_demo() -> gr.Blocks:
                                     notice="Please select Headphones or Text only before starting.",
                                 ),
                                 idle_btn,
-                                gr.update(visible=False),
+                                gr.update(visible=False, recording=False, value=None),
                                 gr.update(visible=False),
                                 gr.update(visible=False),
                                 state,
                             )
                         return (
                             True,
-                            mic_status_html(True),
+                            mic_status_html(
+                                False,
+                                notice="Tap Record below to allow the microphone.",
+                            ),
                             live_btn,
-                            gr.update(visible=True),
-                            gr.update(visible=True),
+                            gr.update(visible=True, recording=False, value=None),
+                            gr.update(visible=True, value=""),
                             gr.update(visible=hp and not txt),
                             make_initial_state(),
                         )
-                    return (
-                        False,
-                        mic_status_html(False),
-                        idle_btn,
-                        gr.update(visible=False),
-                        gr.update(visible=True),
-                        gr.update(visible=False),
-                        state,
-                    )
+                    return live_idle_outputs()
 
                 mic_toggle_btn.click(
                     toggle_live,
                     [is_live, headphones, text_only, live_state],
                     [is_live, mic_status, mic_toggle_btn, live_audio, live_output, live_tts, live_state],
+                )
+
+                def on_audio_recording_started():
+                    """User tapped Gradio's Record and getUserMedia ran — show Listening."""
+                    return mic_status_html(True)
+
+                live_audio.start_recording(
+                    on_audio_recording_started,
+                    inputs=None,
+                    outputs=[mic_status],
+                )
+
+                live_audio.stop_recording(
+                    live_idle_outputs,
+                    inputs=None,
+                    outputs=[
+                        is_live,
+                        mic_status,
+                        mic_toggle_btn,
+                        live_audio,
+                        live_output,
+                        live_tts,
+                        live_state,
+                    ],
                 )
                 
                 def process_chunk(chunk, state, tgt, src_listen, hp):
@@ -904,13 +954,13 @@ def build_demo() -> gr.Blocks:
                 )
 
                 def on_live_audio_cleared():
-                    """User clicked the Audio control X — reset translation buffer and UI."""
-                    return make_initial_state(), gr.update(value=""), gr.update(value=None)
+                    """User clicked the Audio control X — full idle (same as stopping)."""
+                    return live_idle_outputs()
 
                 live_audio.clear(
                     on_live_audio_cleared,
                     inputs=None,
-                    outputs=[live_state, live_output, live_tts],
+                    outputs=[is_live, mic_status, mic_toggle_btn, live_audio, live_output, live_tts, live_state],
                 )
 
             # ===================== RECORD TAB =====================

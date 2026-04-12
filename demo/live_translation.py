@@ -92,7 +92,7 @@ def process_audio_chunk(
         state["audio_buffer"].append(samples)
         
         # Show listening indicator
-        listening_html = _live_translations_display_html(state["utterances"], listening=True)
+        listening_html = _live_translations_display_html(state["utterances"])
         return state, listening_html, "Listening...", None
 
     if state.get("speech_detected", False):
@@ -133,7 +133,7 @@ def process_audio_chunk(
             return state, display_html, status, audio_path
 
         # Still collecting silence
-        listening_html = _live_translations_display_html(state["utterances"], listening=True)
+        listening_html = _live_translations_display_html(state["utterances"])
         return state, listening_html, "", None
 
     return state, _live_translations_display_html(state.get("utterances", [])), "", None
@@ -143,10 +143,9 @@ def process_audio_chunk(
 # Rendering functions
 # ---------------------------------------------------------------------------
 
-def _live_translations_display_html(utterances: list, listening: bool = False) -> str:
+def _live_translations_display_html(utterances: list) -> str:
     """
-    Live tab feed: show translated lines only (user/model text escaped).
-    Optional one-line “Listening…” while the VAD is open (no raw markup dump).
+    Live tab feed: translated lines only (escaped). Listening state is shown on the mic caption, not here, so it cannot get out of sync when you stop.
     """
     parts: list[str] = []
     for u in utterances:
@@ -158,8 +157,6 @@ def _live_translations_display_html(utterances: list, listening: bool = False) -
                 'color:#e5e7eb;line-height:1.55;">'
                 f"{safe}</p>"
             )
-    if listening:
-        parts.append('<p style="margin:0;font-size:13px;color:#10b981;">Listening…</p>')
     if not parts:
         return ""
     return (
