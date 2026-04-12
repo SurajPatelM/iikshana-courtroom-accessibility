@@ -32,11 +32,6 @@ google-genai>=1.0.0
 
 # Experiment tracking (Task 4)
 mlflow>=2.0.0
-# Hugging Face (for MELD/TESS)
-datasets>=2.14.0
-
-# Kaggle (for TESS: pip install kagglehub; set up Kaggle API credentials)
-kagglehub>=0.2.0
 
 # Translation metrics (config search / eval)
 sacrebleu>=2.0.0
@@ -53,13 +48,10 @@ elevenlabs>=1.0.0
 # UI audio analysis (gender, emotion2vec+, heavy ML): install separately — see requirements-demo-ui.txt
 
 # Real-time audio preprocessing VAD backends
-# silero-VAD requires torch (already in requirements-demo-ui.txt for the full UI stack)
 # webrtcvad is a lightweight fallback (no torch needed)
-silero-vad>=5.0
 webrtcvad>=2.0.10
 
 # Utilities
 python-dotenv>=1.0.0
 requests>=2.31.0
 tqdm>=4.66.0
-checksumdir>=1.2.0
