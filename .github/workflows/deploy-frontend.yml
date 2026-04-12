@@ -5,7 +5,7 @@ on:
   workflow_run:
     workflows: ["CI"]
     types: [completed]
-    branches: [deployment-frontend]
+    branches: [frontend-ui]
 
 env:
   GCP_PROJECT: iikshana-mlops
