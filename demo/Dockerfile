@@ -10,10 +10,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libsndfile1 \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Python dependencies
-COPY requirements.txt ./
+# Install Python dependencies (lean demo-only set)
+COPY demo/requirements-demo.txt ./
 RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt && \
+    pip install --no-cache-dir -r requirements-demo.txt && \
     pip install --no-cache-dir --no-deps "inaSpeechSegmenter==0.8.0"
 
 # Copy only the source needed by the demo app
