@@ -5,7 +5,7 @@ on:
   workflow_run:
     workflows: ["CI"]
     types: [completed]
-    branches: [deployment-frontend]
+    branches: [frontend-ui]
 
 env:
   GCP_PROJECT: iikshana-mlops
@@ -46,7 +46,7 @@ jobs:
           docker build \
             --no-cache \
             -t us-east4-docker.pkg.dev/iikshana-mlops/iikshana-docker/iikshana-frontend:latest \
-            -f frontend/Dockerfile .
+            -f demo/Dockerfile .
 
       - name: Push Docker image
         run: |
@@ -54,7 +54,13 @@ jobs:
           
       - name: Deploy to Cloud Run
         run: |
-          gcloud run deploy iikshana-frontend --image us-east4-docker.pkg.dev/iikshana-mlops/iikshana-docker/iikshana-frontend:latest --region us-east4
+          gcloud run deploy iikshana-frontend \
+            --image us-east4-docker.pkg.dev/iikshana-mlops/iikshana-docker/iikshana-frontend:latest \
+            --region us-east4 \
+            --port 8080 \
+            --memory 2Gi \
+            --set-env-vars "PYTHONPATH=${{secrets.PYTHONPATH}},ELEVENLABS_API_KEY=${{ secrets.ELEVENLABS_API_KEY }},GROQ_API_KEY=${{ secrets.GROQ_API_KEY }}" \
+            --timeout 300
 
       - name: Deployment summary
         run: |
