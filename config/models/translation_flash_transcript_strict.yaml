@@ -1,0 +1,26 @@
+id: translation_flash_transcript_strict
+provider: groq
+model_name: llama-3.1-8b-instant
+task_type: translation
+
+system_prompt_id: translation_transcript_strict_system
+prompt_template_id: translation_transcript_strict_user
+temperature: 0.0
+top_p: 1.0
+max_output_tokens: 512
+
+input_fields:
+  - source_text
+  - source_language
+  - target_language
+
+output_schema:
+  type: text
+  field_name: translated_text
+
+parsing:
+  type: plain_text
+
+postprocessing:
+  normalize_whitespace: true
+  apply_legal_glossary_check: true

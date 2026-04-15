@@ -39,6 +39,10 @@ from demo.live_translation import make_initial_state, process_audio_chunk
 DEFAULT_TRANSLATION_CONFIG_ID = (
     os.environ.get("EXPO_TRANSLATION_CONFIG_ID", "translation_flash_v1").strip() or "translation_flash_v1"
 )
+TRANSCRIPT_TRANSLATION_CONFIG_ID = (
+    os.environ.get("EXPO_TRANSCRIPT_TRANSLATION_CONFIG_ID", "translation_flash_transcript_strict").strip()
+    or "translation_flash_transcript_strict"
+)
 
 
 # Mitigate: RuntimeError: Response content longer than Content-Length (Gradio Brotli + uvicorn httptools).
@@ -72,8 +76,6 @@ def _apply_gradio_uvicorn_http_workarounds() -> None:
 
         brotli_mw.BrotliMiddleware.__call__ = _brotli_passthrough  # type: ignore[method-assign]
 
-LANG_LABELS = {"es": "Spanish", "fr": "French", "de": "German", "en": "English"}
-
 # Dropdown choices: (label, value). Live "Listening in" uses auto + fixed codes for translate source.
 LANG_LISTEN_CHOICES: list[tuple[str, str]] = [
     ("Auto-detect", "auto"),
@@ -88,6 +90,16 @@ LANG_SPEAK_CHOICES: list[tuple[str, str]] = [
     ("German", "de"),
 ]
 
+# Match expo canvas so Gradio's theme engine does not paint a white body behind our UI.
+_EXPO_CANVAS_HEX = "#090d14"
+_EXPO_PANEL_HEX = "#161f2e"
+EXPO_THEME = gr.themes.Base().set(
+    body_background_fill=_EXPO_CANVAS_HEX,
+    body_background_fill_dark=_EXPO_CANVAS_HEX,
+    panel_background_fill=_EXPO_PANEL_HEX,
+    panel_background_fill_dark=_EXPO_PANEL_HEX,
+)
+
 # =============================================================================
 # AGGRESSIVE CSS - Force override Gradio defaults
 # =============================================================================
@@ -99,8 +111,32 @@ CUSTOM_CSS = """
     --expo-muted: #94a3b8;
 }
 
-html, body {
+/* Full-bleed canvas: remove default white gutters (Gradio shell + browser) */
+html {
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
+    min-height: 100% !important;
     background-color: var(--expo-canvas) !important;
+    background: var(--expo-canvas) !important;
+}
+
+html, body, #root, #root > div {
+    background-color: var(--expo-canvas) !important;
+    background: var(--expo-canvas) !important;
+}
+
+body {
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
+    min-height: 100vh !important;
+}
+
+#root {
+    max-width: none !important;
+    width: 100% !important;
+    min-height: 100vh !important;
 }
 
 /* Brand header: logo + title */
@@ -137,6 +173,13 @@ html, body {
     display: block !important;
 }
 
+@media (min-width: 1024px) {
+    .gradio-container .expo-brand-logo img {
+        max-width: min(400px, 42vw) !important;
+        max-height: 100px !important;
+    }
+}
+
 /* Force dark background everywhere */
 .gradio-container, .main, .contain, .wrap, .gr-panel, .gr-box, .gr-form,
 .gr-group, .block, .form, .gap, [class*="block"], [class*="panel"] {
@@ -151,16 +194,107 @@ html, body {
     background-color: var(--expo-canvas) !important;
 }
 
-/* Container: fluid up to a comfortable reading width; safe-area for notched phones */
+/* Main content column: nearly full width on laptop; small side padding only */
 .gradio-container {
-    max-width: min(560px, 100%) !important;
+    max-width: 100% !important;
     width: 100% !important;
     margin: 0 auto !important;
-    padding: 12px clamp(12px, 4vw, 20px) !important;
+    padding: 12px clamp(12px, 3vw, 24px) !important;
     padding-left: max(12px, env(safe-area-inset-left, 0px)) !important;
     padding-right: max(12px, env(safe-area-inset-right, 0px)) !important;
     padding-bottom: max(12px, env(safe-area-inset-bottom, 0px)) !important;
     overflow-x: clip !important;
+}
+
+@media (min-width: 480px) {
+    .gradio-container {
+        max-width: min(640px, 100%) !important;
+        padding-left: max(16px, env(safe-area-inset-left, 0px)) !important;
+        padding-right: max(16px, env(safe-area-inset-right, 0px)) !important;
+    }
+}
+
+@media (min-width: 768px) {
+    .gradio-container {
+        max-width: min(1200px, calc(100vw - 32px)) !important;
+        padding: 16px clamp(16px, 2.5vw, 36px) !important;
+    }
+}
+
+@media (min-width: 1024px) {
+    .gradio-container {
+        max-width: min(1600px, calc(100vw - 48px)) !important;
+        padding: 20px clamp(20px, 2vw, 48px) !important;
+    }
+}
+
+@media (min-width: 1600px) {
+    .gradio-container {
+        max-width: min(1760px, calc(100vw - 64px)) !important;
+    }
+}
+
+/* Live tab: vertical stack — mic + options centered, transcript full width below */
+.gradio-container .expo-live-layout {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    gap: 16px !important;
+    width: 100% !important;
+}
+
+.gradio-container .expo-live-sidebar {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    width: 100% !important;
+    max-width: 36rem !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+}
+
+/* Gradio nests mic / options inside .wrap — center that column */
+.gradio-container .expo-live-sidebar > .wrap,
+.gradio-container .expo-live-sidebar .wrap.overflow-visible,
+.gradio-container .expo-live-sidebar .form {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    width: 100% !important;
+}
+
+.gradio-container .expo-live-sidebar .live-options-row {
+    justify-content: center !important;
+    width: 100% !important;
+    max-width: 100% !important;
+}
+
+.gradio-container .expo-live-main {
+    width: 100% !important;
+    max-width: min(56rem, 100%) !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+}
+
+@media (min-width: 768px) {
+    .gradio-container .expo-live-layout {
+        gap: 24px !important;
+    }
+
+    .gradio-container .expo-live-sidebar {
+        max-width: 40rem !important;
+    }
+
+    .gradio-container .expo-live-feed {
+        min-height: min(420px, 55vh) !important;
+    }
+}
+
+/* Title block: scale up on larger screens */
+@media (min-width: 1024px) {
+    .gradio-container .expo-title-block h1 {
+        font-size: 1.75rem !important;
+    }
 }
 
 /* Tighter vertical rhythm between Gradio blocks */
@@ -194,6 +328,13 @@ footer, .footer, [class*="footer"] {
     margin-bottom: 8px !important;
     display: flex !important;
     flex-wrap: wrap !important;
+}
+
+@media (min-width: 1024px) {
+    .tab-nav {
+        gap: 12px !important;
+        margin-bottom: 14px !important;
+    }
 }
 
 .tab-nav button {
@@ -434,6 +575,12 @@ footer, .footer, [class*="footer"] {
     gap: 12px !important;
 }
 
+@media (min-width: 1024px) {
+    .gr-row, .row {
+        gap: 16px !important;
+    }
+}
+
 /* Live: circular mic (real Button + SVG icon file — avoids clipped data-URIs) */
 .gradio-container .expo-mic-stack {
     display: flex !important;
@@ -515,6 +662,9 @@ EXPO_HEAD = (
     '<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />'
     '<meta name="theme-color" content="#090d14" />'
     '<meta name="description" content="IIKSHANA courtroom audio assistive demo." />'
+    "<style>html,body{background:#090d14!important;margin:0;min-height:100%;}"
+    "#root{min-height:100vh;background:#090d14!important;max-width:none!important;width:100%!important;}"
+    "</style>"
 )
 
 
@@ -538,9 +688,9 @@ def header_html(*, show_wordmark: bool = True) -> str:
         <p style="margin:0 0 4px 0; font-size:clamp(10px, 2.8vw, 11px); letter-spacing:2px; color:#666; text-transform:uppercase;">IIKSHANA</p>
         """
     return f"""
-    <div style="text-align:center; padding:10px 0 8px 0; padding-left:max(0px, env(safe-area-inset-left)); padding-right:max(0px, env(safe-area-inset-right));">
+    <div class="expo-title-block" style="text-align:center; padding:10px 0 8px 0; padding-left:max(0px, env(safe-area-inset-left)); padding-right:max(0px, env(safe-area-inset-right));">
         {wordmark}
-        <h1 style="margin:0; font-size:clamp(1.15rem, 5vw, 1.5rem); font-weight:600; color:#f5f5f5; line-height:1.2;">Courtroom audio assistant</h1>
+        <h1 style="margin:0; font-size:clamp(1.15rem, 5vw, 1.75rem); font-weight:600; color:#f5f5f5; line-height:1.2;">Courtroom audio assistant</h1>
     </div>
     """
 
@@ -701,13 +851,76 @@ def _gradio_audio_to_temp_wav(audio: Any) -> tuple[Path | None, list[Path]]:
     return p, cleanup
 
 
-def _run_translation(audio, target_lang, fast_mode, skip_analysis, source_listen: str | None = None):
-    """Simplified translation: Scribe + on-host translate + optional TTS."""
+def _transcript_rich_html_from_lines(lines: list[str], plain: str) -> str:
+    """Build HTML blocks for diarized lines (already escaped-safe via html.escape)."""
+    blocks: list[str] = []
+    for line in lines:
+        escaped = html.escape(line.strip())
+        if not escaped:
+            continue
+        blocks.append(
+            '<div style="background:rgba(255,255,255,0.04); border-radius:10px; padding:12px 16px; '
+            'margin-bottom:8px; font-size:clamp(14px,3.8vw,15px); color:#eee; line-height:1.5; '
+            f'word-break:break-word;">{escaped}</div>'
+        )
+    if blocks:
+        return "".join(blocks)
+    return (
+        f'<div style="background:rgba(255,255,255,0.04); border-radius:10px; padding:16px; '
+        f'font-size:clamp(14px,3.8vw,15px); color:#eee; line-height:1.5; word-break:break-word;">'
+        f"{html.escape(plain)}</div>"
+    )
+
+
+def _split_for_translation(text: str, max_chars: int = 1200) -> list[str]:
+    t = (text or "").strip()
+    if not t:
+        return []
+    if len(t) <= max_chars:
+        return [t]
+    chunks: list[str] = []
+    start = 0
+    n = len(t)
+    while start < n:
+        end = min(start + max_chars, n)
+        if end < n:
+            window = t[start:end]
+            br = max(window.rfind("\n\n"), window.rfind("\n"), window.rfind(" "))
+            if br >= max_chars // 4:
+                end = start + br + 1
+        piece = t[start:end].strip()
+        if piece:
+            chunks.append(piece)
+        start = end
+    return chunks
+
+
+def _looks_like_meta_translation_response(text: str) -> bool:
+    """Detect assistant/refusal style responses that are not direct translations."""
+    t = (text or "").strip().lower()
+    if not t:
+        return False
+    markers = (
+        "you provided",
+        "please provide",
+        "i can",
+        "i cannot",
+        "i can't",
+        "i am unable",
+        "it appears",
+        "if you could",
+        "i'd be happy to help",
+        "as an ai",
+    )
+    return any(m in t for m in markers)
+
+
+def _run_session_transcript(audio, fast_mode, skip_analysis) -> tuple[str, str, str]:
+    """ElevenLabs transcription + Groq text translation into English."""
     src, to_clean = _gradio_audio_to_temp_wav(audio)
     if src is None:
-        return "Record audio first", "", None
+        return "Upload an audio file first", "", ""
 
-    # Fast off → always run local gender/emotion; Fast on → honor "Skip analysis"
     skip_local_ml = skip_analysis if fast_mode else False
 
     try:
@@ -715,52 +928,100 @@ def _run_translation(audio, target_lang, fast_mode, skip_analysis, source_listen
             normalize_to_wav_16k_mono,
             run_ui_audio_analysis,
             scribe_language_code_for_translation,
-            synthesize_speech_mp3,
+        )
+        from backend.src.services.gemini_translation import (
+            translate_text,
+            translation_skipped_no_source,
         )
 
         fd, wav_name = tempfile.mkstemp(suffix=".wav")
         os.close(fd)
         tmp_wav = Path(wav_name)
 
-        normalize_to_wav_16k_mono(src, tmp_wav)
-        result = run_ui_audio_analysis(tmp_wav, status=lambda x: None, skip_local_ml=skip_local_ml)
-        
-        if result.scribe_error:
-            return f"Error: {result.scribe_error}", "", None
-        
-        transcript = (result.transcript_plain or "").strip()
-        if not transcript:
-            return "No speech detected", "", None
-        
-        # Translate
-        from backend.src.services.gemini_translation import translate_text
+        try:
+            normalize_to_wav_16k_mono(src, tmp_wav)
+            result = run_ui_audio_analysis(tmp_wav, status=lambda x: None, skip_local_ml=skip_local_ml)
+        finally:
+            tmp_wav.unlink(missing_ok=True)
 
-        sl = scribe_language_code_for_translation(result.language_code)
-        ov = (source_listen or "").strip().lower()
-        if ov and ov != "auto":
-            sl = ov
-        translated = translate_text(
-            source_text=transcript,
-            source_language=sl,
-            target_language=target_lang,
-            config_id=DEFAULT_TRANSLATION_CONFIG_ID,
-        )
-        
-        # TTS
-        audio_path = None
-        mp3_bytes, _ = synthesize_speech_mp3(translated)
-        if mp3_bytes:
-            tfd, tpath = tempfile.mkstemp(suffix=".mp3")
-            os.close(tfd)
-            Path(tpath).write_bytes(mp3_bytes)
-            audio_path = tpath
-        
-        tmp_wav.unlink(missing_ok=True)
-        label = LANG_LABELS.get(target_lang, target_lang)
-        return f"✓ Translated to {label}", translated, audio_path
-        
+        if result.scribe_error:
+            return f"Error: {result.scribe_error}", "", ""
+
+        plain = (result.transcript_plain or "").strip()
+        if not plain:
+            return "No speech detected in this file.", "", ""
+
+        src_lang = scribe_language_code_for_translation(result.language_code)
+
+        def tr_en(text: str, max_out: int) -> str:
+            t = (text or "").strip()
+            if not t or translation_skipped_no_source(t):
+                return t
+            parts = _split_for_translation(t, max_chars=1200)
+            if not parts:
+                return t
+            out: list[str] = []
+            for part in parts:
+                translated = translate_text(
+                    source_text=part,
+                    source_language=src_lang or "auto",
+                    target_language="en",
+                    config_id=TRANSCRIPT_TRANSLATION_CONFIG_ID,
+                    max_output_tokens=max_out,
+                ).strip()
+                if _looks_like_meta_translation_response(translated):
+                    # Retry once with explicit constraints embedded in source text for stubborn cases.
+                    translated = translate_text(
+                        source_text=(
+                            "Direct courtroom translation required. Output only the translated utterance text in "
+                            "English. Do not explain, refuse, or mention language/script.\n\nUtterance:\n" + part
+                        ),
+                        source_language=src_lang or "auto",
+                        target_language="en",
+                        config_id=TRANSCRIPT_TRANSLATION_CONFIG_ID,
+                        max_output_tokens=max_out,
+                    ).strip()
+                out.append(translated)
+            return "\n\n".join(x for x in out if x)
+
+        try:
+            plain_en = tr_en(plain, 4096)
+        except Exception as te:  # noqa: BLE001
+            return f"Error: translation to English failed: {te}", "", ""
+
+        lines: list[str] = []
+        speaker_role_map = {
+            "Speaker 1": "Judge",
+            "Speaker 2": "Defendant",
+            "Speaker 3": "Witness",
+            "Speaker 4": "Prosecutor",
+        }
+        for seg in result.segments or []:
+            if seg.get("is_audio_event"):
+                tag = (seg.get("audio_event_tag") or seg.get("text") or "event").strip()
+                lines.append(f"[{tag}]")
+                continue
+            label_raw = (seg.get("speaker_label") or "Speaker").strip()
+            label = speaker_role_map.get(label_raw, label_raw)
+            text_src = (seg.get("text") or "").strip()
+            if not text_src:
+                continue
+            try:
+                text_en = tr_en(text_src, 1024)
+            except Exception as te:  # noqa: BLE001
+                return f"Error: translation to English failed: {te}", "", ""
+            if text_en:
+                lines.append(f"[{label}]: {text_en}")
+        if not lines:
+            lines = [plain_en or plain]
+
+        rich_html = _transcript_rich_html_from_lines(lines, plain_en or plain)
+
+        lang = (result.language_display or "Unknown").strip()
+        return f"✓ Transcript ready · English (audio detected: {lang})", rich_html, (plain_en or plain)
+
     except Exception as e:
-        return f"Error: {e}", "", None
+        return f"Error: {e}", "", ""
     finally:
         for p in to_clean:
             p.unlink(missing_ok=True)
@@ -776,8 +1037,9 @@ def build_demo() -> gr.Blocks:
         title="IIKSHANA",
         css=CUSTOM_CSS,
         head=EXPO_HEAD,
-        theme=gr.themes.Base(),
+        theme=EXPO_THEME,
         fill_width=True,
+        fill_height=True,
     ) as demo:
         
         # Header: brand logo (PNG) + page title
@@ -824,38 +1086,40 @@ def build_demo() -> gr.Blocks:
             
             # ===================== LIVE TAB =====================
             with gr.Tab("Live"):
-                with gr.Column(elem_classes=["expo-mic-stack"]):
-                    mic_toggle_btn = gr.Button(
-                        "\u200b",
-                        variant="secondary",
-                        elem_classes=["expo-mic-btn"],
-                        scale=0,
-                        icon=str(EXPO_MIC_SVG),
-                    )
-                    mic_status = gr.HTML(value=mic_status_html(False))
+                with gr.Row(equal_height=False, elem_classes=["expo-live-layout"]):
+                    with gr.Column(scale=0, elem_classes=["expo-live-sidebar"]):
+                        with gr.Column(elem_classes=["expo-mic-stack"]):
+                            mic_toggle_btn = gr.Button(
+                                "\u200b",
+                                variant="secondary",
+                                elem_classes=["expo-mic-btn"],
+                                scale=0,
+                                icon=str(EXPO_MIC_SVG),
+                            )
+                            mic_status = gr.HTML(value=mic_status_html(False))
 
-                with gr.Row(elem_classes=["live-options-row"]):
-                    headphones = gr.Checkbox(label="🎧 Headphones", value=False)
-                    text_only = gr.Checkbox(label="📝 Text only", value=False)
+                        with gr.Row(elem_classes=["live-options-row"]):
+                            headphones = gr.Checkbox(label="🎧 Headphones", value=False)
+                            text_only = gr.Checkbox(label="📝 Text only", value=False)
 
-                # Microphone stream (shown when live). Do NOT set recording=True from Python: Gradio's
-                # streaming UI only creates the MediaRecorder inside record(), so recording=True without
-                # a prior record() leaves capture never started and start_recording never fires.
-                live_audio = gr.Audio(
-                    sources=["microphone"],
-                    streaming=True,
-                    type="numpy",
-                    visible=False,
-                    recording=False,
-                    show_label=False,
-                    label="",
-                )
-                
-                # Output area
-                live_output = gr.HTML(value="", visible=False)
-                
-                # TTS playback
-                live_tts = gr.Audio(type="filepath", autoplay=True, visible=False)
+                        # Microphone stream (shown when live). Do NOT set recording=True from Python: Gradio's
+                        # streaming UI only creates the MediaRecorder inside record(), so recording=True without
+                        # a prior record() leaves capture never started and start_recording never fires.
+                        live_audio = gr.Audio(
+                            sources=["microphone"],
+                            streaming=True,
+                            type="numpy",
+                            visible=False,
+                            recording=False,
+                            show_label=False,
+                            label="",
+                        )
+
+                    with gr.Column(scale=1, elem_classes=["expo-live-main"]):
+                        # Output area (wider on laptop — sits beside mic column)
+                        live_output = gr.HTML(value="", visible=False, elem_classes=["expo-live-feed"])
+                        # TTS playback
+                        live_tts = gr.Audio(type="filepath", autoplay=True, visible=False)
                 
                 # State
                 live_state = gr.State(value=make_initial_state())
@@ -963,10 +1227,21 @@ def build_demo() -> gr.Blocks:
                     outputs=[is_live, mic_status, mic_toggle_btn, live_audio, live_output, live_tts, live_state],
                 )
 
-            # ===================== RECORD TAB =====================
-            with gr.Tab("Record"):
-                audio_input = gr.Audio(sources=["microphone", "upload"], type="filepath")
-                
+            # ===================== TRANSCRIPT TAB =====================
+            with gr.Tab("Transcript"):
+                gr.HTML(
+                    '<p style="margin:0 0 12px 0; font-size:13px; color:#94a3b8; line-height:1.45;">'
+                    "Upload a courtroom session recording. The app transcribes with ElevenLabs and then "
+                    "translates each turn into <strong>English</strong> using your configured translation model "
+                    "(default: Groq config)."
+                    "</p>"
+                )
+                audio_input = gr.Audio(
+                    sources=["upload"],
+                    type="filepath",
+                    label="Courtroom session audio",
+                )
+
                 with gr.Row(elem_classes=["record-options-row"]):
                     fast_mode = gr.Checkbox(
                         label="Fast path",
@@ -978,39 +1253,46 @@ def build_demo() -> gr.Blocks:
                         value=_default_skip_local_ml(),
                         info="Skip gender/emotion models when Fast path is on.",
                     )
-                
-                process_btn = gr.Button("Process", variant="primary")
-                
+
+                process_btn = gr.Button("Generate transcript", variant="primary")
+
                 status_out = gr.HTML(value="")
-                translation_out = gr.HTML(value="")
-                tts_out = gr.Audio(label="", type="filepath")
-                
-                def process_and_format(audio, tgt, fast, skip, src_listen):
-                    src_override = None if not src_listen or str(src_listen).lower() == "auto" else str(src_listen)
-                    status, translation, audio_path = _run_translation(
-                        audio, tgt, fast, skip, source_listen=src_override
-                    )
-                    
-                    # Format status
+                transcript_out = gr.HTML(value="")
+                # Hidden: keeps a plain-text copy in the backend without cluttering the UI.
+                transcript_plain = gr.Textbox(
+                    label="Plain text (copy)",
+                    lines=12,
+                    max_lines=24,
+                    interactive=True,
+                    show_copy_button=True,
+                    visible=False,
+                )
+
+                def process_transcript_and_format(audio, fast, skip):
+                    status, rich_html, plain = _run_session_transcript(audio, fast, skip)
+
                     if status.startswith("✓"):
-                        status_html = f'<div style="background:rgba(16,185,129,0.1); color:#10B981; padding:10px 16px; border-radius:8px; font-size:14px; font-weight:500; display:inline-block;">{status}</div>'
+                        status_html = (
+                            f'<div style="background:rgba(16,185,129,0.1); color:#10B981; padding:10px 16px; '
+                            f'border-radius:8px; font-size:14px; font-weight:500; display:inline-block;">{html.escape(status)}</div>'
+                        )
                     elif status.startswith("Error"):
-                        status_html = f'<div style="background:rgba(239,68,68,0.1); color:#ef4444; padding:10px 16px; border-radius:8px; font-size:14px;">{status}</div>'
+                        status_html = (
+                            f'<div style="background:rgba(239,68,68,0.1); color:#ef4444; padding:10px 16px; '
+                            f'border-radius:8px; font-size:14px;">{html.escape(status)}</div>'
+                        )
                     else:
-                        status_html = f'<div style="color:#888; font-size:14px;">{status}</div>'
-                    
-                    # Format translation
-                    if translation:
-                        trans_html = f'<div style="background:rgba(255,255,255,0.04); border-radius:10px; padding:16px; margin-top:12px; font-size:clamp(14px,3.8vw,15px); color:#eee; line-height:1.5; word-break:break-word; overflow-wrap:anywhere;">{translation}</div>'
-                    else:
-                        trans_html = ""
-                    
-                    return status_html, trans_html, audio_path
-                
+                        status_html = f'<div style="color:#888; font-size:14px;">{html.escape(status)}</div>'
+
+                    body_html = (
+                        f'<div style="margin-top:12px;">{rich_html}</div>' if rich_html else ""
+                    )
+                    return status_html, body_html, plain or ""
+
                 process_btn.click(
-                    process_and_format,
-                    [audio_input, target_lang_dd, fast_mode, skip_analysis, source_lang_dd],
-                    [status_out, translation_out, tts_out],
+                    process_transcript_and_format,
+                    [audio_input, fast_mode, skip_analysis],
+                    [status_out, transcript_out, transcript_plain],
                 )
         
         # Footer
