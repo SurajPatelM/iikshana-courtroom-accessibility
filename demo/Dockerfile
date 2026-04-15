@@ -29,4 +29,4 @@ EXPOSE 8080
 ENV GRADIO_SERVER_NAME=0.0.0.0
 ENV GRADIO_SERVER_PORT=8080
 
-CMD ["python", "demo/gradio_expo_app.py"]
+CMD ["python", "-m", "http.server", "8080", "--directory", "demo"]
