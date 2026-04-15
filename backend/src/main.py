@@ -107,6 +107,10 @@ async def ws_session(ws: WebSocket):
         while True:
             msg = await ws.receive()
 
+            if msg.get("type") == "websocket.disconnect":
+                logger.info("Client disconnected (disconnect frame).")
+                break
+
             # ── Text frame: config or control ──────────────────────────────────
             if "text" in msg and msg["text"]:
                 try:
@@ -129,6 +133,8 @@ async def ws_session(ws: WebSocket):
                 elif data.get("type") == "stop":
                     logger.info("Client requested stop.")
                     break
+                elif data.get("type") == "ping":
+                    await ws.send_text(json.dumps({"type": "pong"}))
 
             # ── Binary frame: Float32 PCM chunk ────────────────────────────────
             elif "bytes" in msg and msg["bytes"]:
@@ -201,6 +207,11 @@ async def ws_session(ws: WebSocket):
 
     except WebSocketDisconnect:
         logger.info("WebSocket disconnected.")
+    except RuntimeError as exc:
+        if "disconnect" in str(exc).lower():
+            logger.info("WebSocket disconnected (runtime).")
+        else:
+            logger.exception("WebSocket runtime error: %s", exc)
     except Exception as exc:
         logger.exception("WebSocket error: %s", exc)
         try:
@@ -231,6 +242,10 @@ async def ws_asl_session(ws: WebSocket):
         while True:
             msg = await ws.receive()
 
+            if msg.get("type") == "websocket.disconnect":
+                logger.info("[ASL BACKEND] client disconnected (disconnect frame).")
+                break
+
             if "text" in msg and msg["text"]:
                 try:
                     data = json.loads(msg["text"])
@@ -249,6 +264,8 @@ async def ws_asl_session(ws: WebSocket):
                 elif data.get("type") == "stop":
                     logger.info("[ASL BACKEND] client requested stop")
                     break
+                elif data.get("type") == "ping":
+                    await ws.send_text(json.dumps({"type": "pong"}))
 
             elif "bytes" in msg and msg["bytes"]:
                 raw_bytes = msg["bytes"]
@@ -328,6 +345,11 @@ async def ws_asl_session(ws: WebSocket):
 
     except WebSocketDisconnect:
         logger.info("[ASL BACKEND] websocket disconnected")
+    except RuntimeError as exc:
+        if "disconnect" in str(exc).lower():
+            logger.info("[ASL BACKEND] websocket disconnected (runtime).")
+        else:
+            logger.exception("[ASL BACKEND] websocket runtime error: %s", exc)
     except Exception as exc:
         logger.exception("[ASL BACKEND] websocket error: %s", exc)
         try:
