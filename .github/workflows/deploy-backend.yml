@@ -1,35 +1,79 @@
 name: Deploy Backend
 
 on:
+  workflow_dispatch:
   workflow_run:
     workflows: ["CI"]
     types: [completed]
-    branches: [main]
+    branches: [expo]
+
+env:
+  GCP_PROJECT: iikshana-mlops
+  GCP_REGION: us-east4
+  AR_REPO: iikshana-docker
+  IMAGE: us-east4-docker.pkg.dev/iikshana-mlops/iikshana-docker/iikshana-backend
+  CLOUD_RUN_SERVICE: iikshana-backend
 
 jobs:
   deploy-backend:
-    name: Build & Push to Artifact Registry
+    name: Build, Push & Deploy Backend to Cloud Run
     runs-on: ubuntu-latest
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+
+    permissions:
+      contents: read
+      id-token: write
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Python 3.10
-        uses: actions/setup-python@v5
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
         with:
-          python-version: "3.10"
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
 
-      - name: Run tests before deploy
-        run: echo "Backend tests skipped — module not yet implemented"
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ env.GCP_PROJECT }}
 
-      - name: Build and push Docker image
-        run: echo "Docker build/push skipped — module not yet implemented"
+      - name: Authenticate Docker to Artifact Registry
+        run: gcloud auth configure-docker us-east4-docker.pkg.dev --quiet
+
+      - name: Build backend Docker image
+        run: |
+          docker build \
+            --no-cache \
+            -t ${{ env.IMAGE }}:latest \
+            -f backend/Dockerfile .
+
+      - name: Push backend Docker image
+        run: |
+          docker push ${{ env.IMAGE }}:latest
+
+      - name: Deploy backend to Cloud Run
+        run: |
+          gcloud run deploy ${{ env.CLOUD_RUN_SERVICE }} \
+            --image ${{ env.IMAGE }}:latest \
+            --project ${{ env.GCP_PROJECT }} \
+            --region ${{ env.GCP_REGION }} \
+            --platform managed \
+            --port 8000 \
+            --memory 2Gi \
+            --timeout 300 \
+            --allow-unauthenticated \
+            --set-env-vars "PYTHONPATH=${{ secrets.PYTHONPATH }},GROQ_API_KEY=${{ secrets.GROQ_API_KEY }},ELEVENLABS_API_KEY=${{ secrets.ELEVENLABS_API_KEY }},GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }},HF_API_TOKEN=${{ secrets.HF_API_TOKEN }}"
 
       - name: Deployment summary
         run: |
+          URL=$(gcloud run services describe ${{ env.CLOUD_RUN_SERVICE }} \
+            --project ${{ env.GCP_PROJECT }} \
+            --region ${{ env.GCP_REGION }} \
+            --format='value(status.url)')
           echo "=========================================="
-          echo "Backend deploy skipped — module not yet implemented"
-          echo "Commit SHA: ${{ github.event.workflow_run.head_sha }}"
+          echo "Backend deployed successfully!"
+          echo "Service URL: $URL"
+          echo "Commit SHA: ${{ github.sha }}"
+          echo "Branch: ${{ github.ref_name }}"
           echo "=========================================="
