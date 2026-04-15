@@ -2495,28 +2495,6 @@
       const introContent = document.getElementById('intro-content');
       const titleEl      = document.getElementById('intro-title');
 
-      // ── Audio ──────────────────────────────────────────────────────────────
-      // Chrome/Safari require a user gesture before speechSynthesis will fire.
-      // The intro overlay covers the entire screen, so the user's first natural
-      // click/tap on it acts as that gesture — no explicit prompt needed.
-      // Firefox plays immediately without any gesture.
-      const utterance = new SpeechSynthesisUtterance('iikshana');
-      utterance.lang  = 'en-US';
-      utterance.rate  = 0.78;
-      utterance.pitch = 1.0;
-
-      let audioPlayed = false;
-      function playAudio() {
-        if (audioPlayed || !window.speechSynthesis) return;
-        audioPlayed = true;
-        window.speechSynthesis.cancel();
-        window.speechSynthesis.speak(utterance);
-      }
-
-      // Overlay is fullscreen — first touch/click on it unblocks Chrome/Safari
-      overlay.addEventListener('pointerdown', playAudio, { once: true });
-      // Keyboard users too
-      document.addEventListener('keydown', playAudio, { once: true });
 
       // ── Phase 1 → 2: scales fade after 0.6 s hold ──
       setTimeout(() => scalesWrap.classList.add('fade-out'), 2450);
@@ -2532,9 +2510,6 @@
           span.style.animationDelay = (0.07 * i) + 's';
           titleEl.appendChild(span);
         });
-        // Attempt immediate speak — succeeds in Firefox; fallback above
-        // handles Chrome/Safari when the user interacts
-        playAudio();
       }, 2600);
 
       // ── Phase 3: slide overlay away ──
