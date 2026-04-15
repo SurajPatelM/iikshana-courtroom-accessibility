@@ -34,6 +34,7 @@ def _load_repo_dotenv() -> None:
 
 _load_repo_dotenv()
 
+from demo.asl_translation import make_initial_asl_state, process_asl_chunk
 from demo.live_translation import make_initial_state, process_audio_chunk
 
 DEFAULT_TRANSLATION_CONFIG_ID = (
@@ -1012,7 +1013,103 @@ def build_demo() -> gr.Blocks:
                     [audio_input, target_lang_dd, fast_mode, skip_analysis, source_lang_dd],
                     [status_out, translation_out, tts_out],
                 )
-        
+
+            # ===================== SIGN LANGUAGE TAB =====================
+            with gr.Tab("Sign Language"):
+                gr.Markdown(
+                    """
+                    <div style="background:rgba(0,200,150,0.08); padding:12px 16px; border-radius:10px; border-left:4px solid #00c896;">
+                    <h3 style="margin:0; color:#00c896;">🤟 ASL for Deaf Courtroom Participants</h3>
+                    <p style="margin:4px 0 0 0; font-size:14px; color:#ccc;">
+                    Courtroom speech is automatically transcribed and signed by the ASL avatar in real-time.
+                    </p>
+                    </div>
+                    """
+                )
+
+                asl_source_lang = gr.Dropdown(
+                    choices=LANG_LISTEN_CHOICES,
+                    value="auto",
+                    label="Listening in",
+                )
+
+                asl_audio = gr.Audio(
+                    sources=["microphone"],
+                    streaming=True,
+                    type="numpy",
+                    label="Microphone",
+                )
+
+                asl_state = gr.State(value=make_initial_asl_state())
+
+                signmt_iframe = gr.HTML(
+                    value="""
+                    <div style="display:flex; flex-direction:column; align-items:center; padding:0;">
+                        <iframe
+                            id="signmt-frame"
+                            name="signmt-frame"
+                            src="https://sign.mt/?spl=en&sl=ase"
+                            width="100%"
+                            height="650"
+                            style="border:2px solid rgba(0,200,150,0.3); border-radius:12px; max-width:900px;"
+                            allow="camera; microphone; autoplay"
+                            loading="lazy"
+                        ></iframe>
+                    </div>
+                    """,
+                    label="ASL Avatar",
+                )
+
+                asl_transcript = gr.Textbox(
+                    label="Transcript",
+                    interactive=False,
+                    lines=2,
+                    placeholder="Speak to see transcript here...",
+                )
+
+                asl_transcript.change(
+                    fn=None,
+                    inputs=[asl_transcript],
+                    outputs=[],
+                    js="""
+                    (text) => {
+                        if (!text || !String(text).trim()) return;
+                        const lines = String(text).trim().split(/\\r?\\n|\\r/).filter((l) => l.trim());
+                        if (lines.length === 0) return;
+                        const lastLine = lines[lines.length - 1].trim();
+                        if (!lastLine || lastLine.length < 3) return;
+                        if (window._lastSignMtText === lastLine) return;
+                        window._lastSignMtText = lastLine;
+                        const truncated = lastLine.substring(0, 80);
+                        const encoded = encodeURIComponent(truncated);
+                        const newSrc = "https://sign.mt/?spl=en&sl=ase&text=" + encoded;
+                        const iframe = document.getElementById("signmt-frame");
+                        if (!iframe) {
+                            const fallback = document.querySelector('iframe[name="signmt-frame"]')
+                                || document.querySelector('iframe[src*="sign.mt"]');
+                            if (fallback) fallback.src = newSrc;
+                            return;
+                        }
+                        iframe.src = newSrc;
+                    }
+                    """,
+                )
+
+                def process_asl(chunk, state, src_lang):
+                    src_override = (
+                        None if not src_lang or str(src_lang).lower() == "auto" else str(src_lang)
+                    )
+                    state, english, _gloss, _asl_html = process_asl_chunk(
+                        chunk, state, source_language_override=src_override
+                    )
+                    return state, english or ""
+
+                asl_audio.stream(
+                    process_asl,
+                    [asl_audio, asl_state, asl_source_lang],
+                    [asl_state, asl_transcript],
+                )
+
         # Footer
         gr.HTML(footer_html())
     
