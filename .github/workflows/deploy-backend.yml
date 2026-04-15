@@ -45,23 +45,23 @@ jobs:
         run: |
           docker build \
             --no-cache \
-            -t ${{ env.IMAGE }}:latest \
+            -t us-east4-docker.pkg.dev/iikshana-mlops/iikshana-docker/iikshana-backend:latest \
             -f backend/Dockerfile .
 
       - name: Push backend Docker image
         run: |
-          docker push ${{ env.IMAGE }}:latest
+          docker push us-east4-docker.pkg.dev/iikshana-mlops/iikshana-docker/iikshana-backend:latest
 
       - name: Deploy backend to Cloud Run
         run: |
-          gcloud run deploy ${{ env.CLOUD_RUN_SERVICE }} \
-            --image ${{ env.IMAGE }}:latest \
-            --project ${{ env.GCP_PROJECT }} \
-            --region ${{ env.GCP_REGION }} \
-            --platform managed \
+          gcloud run deploy iikshana-backend \
+            --image us-east4-docker.pkg.dev/iikshana-mlops/iikshana-docker/iikshana-backend:latest \
+            --region us-east4 \
+            --cpu-boost \
+            --timeout=600 \
             --port 8000 \
             --memory 2Gi \
-            --timeout 300 \
+            --cpu 1 \
             --allow-unauthenticated \
             --set-env-vars "PYTHONPATH=${{ secrets.PYTHONPATH }},GROQ_API_KEY=${{ secrets.GROQ_API_KEY }},ELEVENLABS_API_KEY=${{ secrets.ELEVENLABS_API_KEY }},GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }},HF_API_TOKEN=${{ secrets.HF_API_TOKEN }}"
 
