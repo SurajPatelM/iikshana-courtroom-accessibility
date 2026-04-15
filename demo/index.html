@@ -2344,8 +2344,15 @@
     }
 
     // ─── LIVE TRANSLATION — WebSocket + Web Audio ─────────────────────────────
-    const WS_URL = 'ws://localhost:8000/ws';
-    const ASL_WS_URL = 'ws://localhost:8000/ws/asl';
+    const PROD_BACKEND_BASE = 'https://iikshana-frontend-vpp272pn4q-uk.a.run.app';
+    const IS_LOCAL = ['localhost', '127.0.0.1'].includes(window.location.hostname);
+    const BACKEND_BASE = IS_LOCAL ? 'http://localhost:8000' : PROD_BACKEND_BASE;
+
+    const WS_URL = BACKEND_BASE.replace(/^http/, 'ws') + '/ws';
+    const ASL_WS_URL = BACKEND_BASE.replace(/^http/, 'ws') + '/ws/asl';
+    console.log('[CONFIG] BACKEND_BASE =', BACKEND_BASE);
+    console.log('[CONFIG] WS_URL =', WS_URL);
+    console.log('[CONFIG] ASL_WS_URL =', ASL_WS_URL);
 
     let _ws            = null;
     let _audioCtx      = null;
