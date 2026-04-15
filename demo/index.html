@@ -1315,6 +1315,10 @@
     .live-status-badge.listening .hero-badge-dot { background: var(--p1); }
     .live-status-badge.translating .hero-badge-dot { background: var(--p3); }
     .live-status-badge.error .hero-badge-dot { background: #f87171; }
+    .asl-status-badge.connecting .hero-badge-dot { background: #f59e0b; }
+    .asl-status-badge.listening .hero-badge-dot { background: var(--p1); }
+    .asl-status-badge.processing .hero-badge-dot { background: var(--p3); }
+    .asl-status-badge.error .hero-badge-dot { background: #f87171; }
 
     .transcript-view-more {
       margin-top: 16px;
@@ -1383,29 +1387,37 @@
       position: absolute;
       inset: 0;
       background: radial-gradient(ellipse at center, rgba(56,189,248,0.08) 0%, transparent 70%);
+      pointer-events: none;
+      z-index: 0;
     }
 
-    .asl-hands {
-      font-size: 72px;
-      margin-bottom: 20px;
-      display: block;
-      animation: aslFloat 3s ease-in-out infinite;
+    .asl-display-card iframe {
       position: relative;
       z-index: 1;
     }
 
-    @keyframes aslFloat {
-      0%, 100% { transform: translateY(0px); }
-      50% { transform: translateY(-8px); }
+    .asl-controls {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--r);
+      padding: 20px;
+      margin-bottom: 16px;
+      text-align: center;
     }
 
-    .asl-placeholder {
+    .asl-status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 12px;
+      border-radius: 100px;
+      border: 1px solid rgba(52,211,153,0.3);
+      background: rgba(52,211,153,0.08);
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--p3);
       font-family: var(--font-b);
-      font-size: 15px;
-      color: rgba(200,220,255,0.5);
-      line-height: 1.65;
-      position: relative;
-      z-index: 1;
+      margin-left: 8px;
     }
 
     .asl-explanation {
@@ -2165,11 +2177,54 @@
 
     <div class="asl-display-area">
       <div class="asl-display-card">
-        <span class="asl-hands">🤟</span>
-        <p class="asl-placeholder">
-          ASL output will appear here during live sessions.<br>
-          Start a live translation session to activate ASL rendering.
-        </p>
+        <iframe
+          id="signmt-frame"
+          name="signmt-frame"
+          src="https://sign.mt/?spl=en&sl=ase"
+          width="100%"
+          height="650"
+          style="border:2px solid rgba(56,189,248,0.2); border-radius:16px; max-width:100%; background:#111827;"
+          allow="camera; microphone; autoplay"
+          loading="lazy"
+        ></iframe>
+      </div>
+
+      <div class="asl-controls">
+        <div style="margin:0 auto 16px auto; max-width:320px; text-align:left;">
+          <div class="lang-label">Source Language</div>
+          <select class="lang-select" id="asl-source-lang-select">
+            <option>Auto-detect</option>
+            <option>English</option>
+            <option>Spanish</option>
+            <option>French</option>
+            <option>German</option>
+          </select>
+        </div>
+
+        <div style="display:flex; align-items:center; justify-content:center; margin-bottom:12px;">
+          <button class="btn-record" id="btn-asl-record">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+              <circle cx="12" cy="12" r="8"/>
+            </svg>
+            Click to start ASL recording
+          </button>
+          <span class="asl-status-badge" id="asl-status-badge">
+            <span class="hero-badge-dot"></span>
+            Ready
+          </span>
+        </div>
+
+        <div style="font-family:var(--font-b);font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--muted);margin-bottom:8px;">ASL Audio Level</div>
+        <div class="live-waveform">
+          <div class="live-waveform-bar" style="height:30%;animation-delay:0s;"></div>
+          <div class="live-waveform-bar" style="height:70%;animation-delay:0.1s;"></div>
+          <div class="live-waveform-bar" style="height:45%;animation-delay:0.2s;"></div>
+          <div class="live-waveform-bar" style="height:90%;animation-delay:0.05s;"></div>
+          <div class="live-waveform-bar" style="height:55%;animation-delay:0.15s;"></div>
+          <div class="live-waveform-bar" style="height:35%;animation-delay:0.25s;"></div>
+          <div class="live-waveform-bar" style="height:75%;animation-delay:0.08s;"></div>
+          <div class="live-waveform-bar" style="height:50%;animation-delay:0.18s;"></div>
+        </div>
       </div>
 
       <div style="text-align:center;margin-bottom:24px;">
@@ -2177,18 +2232,6 @@
       </div>
     </div>
 
-    <div class="asl-explanation">
-      <h3>How ASL rendering works</h3>
-      <p>
-        iikshana's ASL pipeline takes the live speech transcript and maps each word through a legal-domain sign vocabulary database containing over 15,000 ASL signs. Words without a direct sign are finger-spelled automatically.
-      </p>
-      <p>
-        The rendering engine produces smooth animated sign sequences at natural ASL pacing — including non-manual markers like facial expressions and mouth movements — displayed in the panel above in real time.
-      </p>
-      <p>
-        ASL output can be mirrored to a secondary monitor or display positioned for the deaf or hard-of-hearing participant, so they receive continuous, uninterrupted interpretation without relying on a human interpreter.
-      </p>
-    </div>
   </div>
 
   <!-- =============================================
@@ -2302,6 +2345,7 @@
 
     // ─── LIVE TRANSLATION — WebSocket + Web Audio ─────────────────────────────
     const WS_URL = 'ws://localhost:8000/ws';
+    const ASL_WS_URL = 'ws://localhost:8000/ws/asl';
 
     let _ws            = null;
     let _audioCtx      = null;
@@ -2309,6 +2353,39 @@
     let _processor     = null;
     let _isRecording   = false;
     let _wsConnected   = false;   // true only after onopen fires
+    let _lastSignMtText = '';
+    let _lastAslIframeUrl = '';
+    let _lastAslNavigationTime = 0;
+    let _aslIframeBusy = false;
+    let _aslLatestPendingItem = null;
+    let _lastAslTranscriptLine = '';
+    let _lastAppliedAslTranscriptLine = '';
+    let _aslWs = null;
+    let _aslAudioCtx = null;
+    let _aslStream = null;
+    let _aslProcessor = null;
+    let _isAslRecording = false;
+
+    function updateAslFromTranscript(text) {
+      const raw = String(text || '').trim();
+      if (!raw) return;
+
+      const lines = raw.split(/\r?\n|\r/).filter(l => l.trim());
+      if (lines.length === 0) return;
+
+      const lastLine = lines[lines.length - 1].trim();
+      if (!lastLine || lastLine.length < 3) return;
+
+      if (_lastSignMtText === lastLine) return;
+      _lastSignMtText = lastLine;
+
+      const iframe = document.getElementById('signmt-frame');
+      if (!iframe) return;
+
+      const truncated = lastLine.substring(0, 80);
+      const encoded = encodeURIComponent(truncated);
+      iframe.src = `https://sign.mt/?spl=en&sl=ase&text=${encoded}`;
+    }
 
     // ── Status badge helper ──
     function setLiveStatus(text, mode /* 'ready'|'listening'|'translating'|'error' */) {
@@ -2319,6 +2396,51 @@
       // Update text node (last text node in badge)
       const nodes = [...badge.childNodes].filter(n => n.nodeType === 3);
       if (nodes.length) nodes[nodes.length - 1].textContent = ' ' + text;
+    }
+
+    function setAslStatus(text, mode /* 'ready'|'connecting'|'listening'|'processing'|'error' */) {
+      const badge = document.getElementById('asl-status-badge');
+      if (badge) {
+        badge.classList.remove('connecting', 'listening', 'processing', 'error');
+        if (mode && mode !== 'ready') badge.classList.add(mode);
+        const labelByMode = {
+          ready: 'Ready',
+          connecting: 'Connecting',
+          listening: 'Listening',
+          processing: 'Processing',
+          error: 'Error',
+        };
+        const label = labelByMode[mode] || labelByMode.ready;
+        const nodes = [...badge.childNodes].filter(n => n.nodeType === 3);
+        if (nodes.length) nodes[nodes.length - 1].textContent = ' ' + label;
+      }
+      console.log('[ASL FRONTEND STATUS]', text);
+    }
+
+    function processLatestAslItem() {
+      const iframe = document.getElementById('signmt-frame');
+      if (!iframe) return;
+
+      if (_aslIframeBusy) return;
+      if (!_aslLatestPendingItem) return;
+
+      const now = Date.now();
+      if (now - _lastAslNavigationTime < 2500) return;
+
+      const item = _aslLatestPendingItem;
+      _aslLatestPendingItem = null;
+      if (!item || !item.url) return;
+
+      if (item.url === _lastAslIframeUrl) {
+        return;
+      }
+
+      _aslIframeBusy = true;
+      _lastAslIframeUrl = item.url;
+      _lastAppliedAslTranscriptLine = item.transcriptLine || '';
+      _lastAslNavigationTime = now;
+
+      iframe.contentWindow.location.replace(item.url);
     }
 
     // ── Append a line to the transcript ──
@@ -2393,6 +2515,8 @@
 
         if (msg.type === 'transcript') {
           appendTranscriptLine(msg);
+          const aslSourceText = msg.original || msg.english || msg.text || '';
+          updateAslFromTranscript(aslSourceText);
           setLiveStatus('Translated', 'translating');
           setTimeout(() => _isRecording && setLiveStatus('Listening…', 'listening'), 1800);
 
@@ -2476,6 +2600,146 @@
         btn.classList.remove('active');
         btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="8"/></svg> Click to start recording`;
         stopRecording();
+      }
+    }
+
+    // ASL end-to-end flow:
+    // microphone -> frontend websocket (/ws/asl) -> process_asl_chunk ->
+    // Groq STT -> ASL gloss generation -> signmt_url -> iframe reload
+    async function startAslRecording() {
+      console.log('[ASL FRONTEND] startAslRecording()');
+      setAslStatus('Requesting microphone...', 'connecting');
+      try {
+        _aslStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      } catch (err) {
+        setAslStatus('Microphone access denied', 'error');
+        console.error('[ASL FRONTEND] microphone denied', err);
+        alert('Microphone access denied. Please allow mic access and try again.');
+        return;
+      }
+      setAslStatus('Microphone connected', 'connecting');
+
+      _aslAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const src = _aslAudioCtx.createMediaStreamSource(_aslStream);
+      _aslProcessor = _aslAudioCtx.createScriptProcessor(4096, 1, 1);
+      src.connect(_aslProcessor);
+      _aslProcessor.connect(_aslAudioCtx.destination);
+
+      _aslWs = new WebSocket(ASL_WS_URL);
+      _aslWs.binaryType = 'arraybuffer';
+      let sentChunkCount = 0;
+
+      _aslWs.onopen = () => {
+        console.log('[ASL FRONTEND] websocket opened');
+        _aslWs.send(JSON.stringify({
+          type: 'config',
+          source_lang: document.getElementById('asl-source-lang-select').value,
+          sample_rate: _aslAudioCtx.sampleRate,
+        }));
+        setAslStatus('ASL websocket connected', 'listening');
+      };
+
+      _aslWs.onmessage = (event) => {
+        let msg;
+        try { msg = JSON.parse(event.data); } catch { return; }
+
+        if (msg.type === 'transcript') {
+          console.log('[ASL FRONTEND] transcript received');
+          const raw = String(msg.text || '').trim();
+          const lines = raw.split(/\r?\n|\r/).filter((l) => l.trim());
+          _lastAslTranscriptLine = lines.length ? lines[lines.length - 1].trim() : '';
+          setAslStatus('Transcript received from backend', 'processing');
+        } else if (msg.type === 'gloss') {
+          console.log('[ASL FRONTEND] gloss received');
+          setAslStatus('ASL gloss received', 'processing');
+        } else if (msg.type === 'signmt_url') {
+          console.log('[ASL FRONTEND] signmt_url received');
+          const iframe = document.getElementById('signmt-frame');
+          if (!msg.url) return;
+          if (!iframe) return;
+          if (!_lastAslTranscriptLine) return;
+          if (_lastAslTranscriptLine.length < 6) return;
+          const blocked = [
+            "thank you",
+            "thank you.",
+            "thank you for watching",
+            "thank you for watching.",
+            "bye",
+            "bye."
+          ];
+
+          if (blocked.includes(_lastAslTranscriptLine.trim().toLowerCase())) return;
+          const alphaWordCount = _lastAslTranscriptLine
+            .split(/\s+/)
+            .filter((w) => /[a-z]/i.test(w)).length;
+          if (alphaWordCount < 2) return;
+          if (_lastAslTranscriptLine.trim().toLowerCase() === _lastAppliedAslTranscriptLine.trim().toLowerCase()) return;
+          if (msg.url === _lastAslIframeUrl) return;
+
+          _aslLatestPendingItem = {
+            url: msg.url,
+            transcriptLine: _lastAslTranscriptLine || ''
+          };
+
+          processLatestAslItem();
+          setAslStatus('sign.mt iframe updated', 'processing');
+        } else if (msg.type === 'status') {
+          console.log('[ASL FRONTEND][status]', msg.message || '');
+        } else if (msg.type === 'error') {
+          console.error('[ASL FRONTEND][error]', msg.message || '');
+          setAslStatus('ASL backend error', 'error');
+        }
+      };
+
+      _aslWs.onerror = (err) => {
+        console.error('[ASL FRONTEND] websocket error', err);
+        setAslStatus('ASL websocket failed', 'error');
+      };
+
+      _aslWs.onclose = () => {
+        console.log('[ASL FRONTEND] websocket closed');
+      };
+
+      _aslProcessor.onaudioprocess = (e) => {
+        if (!_aslWs || _aslWs.readyState !== WebSocket.OPEN) return;
+        const f32 = e.inputBuffer.getChannelData(0);
+        _aslWs.send(f32.slice(0).buffer);
+        sentChunkCount += 1;
+        if (sentChunkCount % 25 === 0) {
+          console.log('[ASL FRONTEND] chunks sent:', sentChunkCount);
+        }
+      };
+
+      _isAslRecording = true;
+    }
+
+    function stopAslRecording() {
+      console.log('[ASL FRONTEND] stopAslRecording()');
+      _isAslRecording = false;
+
+      if (_aslProcessor) { _aslProcessor.disconnect(); _aslProcessor = null; }
+      if (_aslStream)    { _aslStream.getTracks().forEach(t => t.stop()); _aslStream = null; }
+      if (_aslAudioCtx)  { _aslAudioCtx.close(); _aslAudioCtx = null; }
+      if (_aslWs) {
+        if (_aslWs.readyState === WebSocket.OPEN) _aslWs.send(JSON.stringify({ type: 'stop' }));
+        _aslWs.close();
+        _aslWs = null;
+      }
+      setAslStatus('Ready', 'ready');
+    }
+
+    function toggleAslRecord() {
+      const btn = document.getElementById('btn-asl-record');
+      if (!btn) return;
+
+      if (!_isAslRecording) {
+        btn.classList.add('active');
+        btn.textContent = 'Stop ASL recording';
+        startAslRecording();
+      } else {
+        btn.classList.remove('active');
+        btn.textContent = 'Click to start ASL recording';
+        stopAslRecording();
       }
     }
 
@@ -2725,6 +2989,18 @@
 
     // ─── INITIALISATION ───────────────────────────
     document.addEventListener('DOMContentLoaded', () => {
+      const aslRecordBtn = document.getElementById('btn-asl-record');
+      if (aslRecordBtn) aslRecordBtn.addEventListener('click', toggleAslRecord);
+      const aslIframe = document.getElementById('signmt-frame');
+      if (aslIframe) {
+        aslIframe.addEventListener('load', () => {
+          _aslIframeBusy = false;
+          setTimeout(() => {
+            processLatestAslItem();
+          }, 300);
+        });
+      }
+
       // Dark mode
       const savedDark = localStorage.getItem('iikshana_dark');
       if (savedDark === '1') {

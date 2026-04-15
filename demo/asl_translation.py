@@ -27,6 +27,7 @@ _ENERGY_THRESHOLD = 0.008
 _SILENCE_FRAMES_TO_END = 4
 _MIN_UTTERANCE_SECONDS = 0.3
 _SAMPLE_RATE = 16_000
+_SILENCE_SECONDS_TO_END = 2.0
 
 _MAX_HISTORY_UTTERANCES = 10
 
@@ -51,6 +52,7 @@ def make_initial_asl_state() -> dict[str, Any]:
     return {
         "audio_buffer": [],
         "silence_frames": 0,
+        "silence_seconds": 0.0,
         "speech_detected": False,
         "asl_history": [],
         "utterance_count": 0,
@@ -274,6 +276,7 @@ def process_asl_chunk(
     -------
     (updated_state, english_transcript_block, asl_gloss_block, asl_html)
     """
+    logger.info("[ASL PIPELINE] chunk received")
     history: list[dict[str, Any]] = list(state.get("asl_history", []))
 
     def outputs(s: dict[str, Any]) -> tuple[dict[str, Any], str, str, str]:
@@ -293,6 +296,7 @@ def process_asl_chunk(
     samples = _to_16k_mono_float32(np.asarray(raw_samples), int(src_sr))
     if samples.size == 0:
         return outputs(state)
+    chunk_duration = len(samples) / _SAMPLE_RATE
 
     # Same energy gate as live_translation.process_audio_chunk
     rms = float(np.sqrt(np.mean(samples ** 2)))
@@ -301,16 +305,20 @@ def process_asl_chunk(
     state = dict(state)
     state["audio_buffer"] = list(state.get("audio_buffer", []))
     state["asl_history"] = list(state.get("asl_history", []))
+    state["silence_seconds"] = float(state.get("silence_seconds", 0.0))
 
     silence_frames = int(state.get("silence_frames", 0))
+    silence_seconds = float(state.get("silence_seconds", 0.0))
     speech_detected = bool(state.get("speech_detected", False))
     buf_len = len(state["audio_buffer"])
     logger.info(
-        "ASL VAD: energy=%.6f threshold=%s silence_frames=%s/%s speech=%s buffer=%s is_speech=%s",
+        "[ASL PIPELINE] vad energy=%.6f threshold=%s silence_frames=%s/%s silence_seconds=%.2f/%.2f speech=%s buffer=%s is_speech=%s",
         rms,
         _ENERGY_THRESHOLD,
         silence_frames,
         _SILENCE_FRAMES_TO_END,
+        silence_seconds,
+        _SILENCE_SECONDS_TO_END,
         speech_detected,
         buf_len,
         is_speech,
@@ -324,14 +332,16 @@ def process_asl_chunk(
     if is_speech:
         state["speech_detected"] = True
         state["silence_frames"] = 0
+        state["silence_seconds"] = 0.0
         state["audio_buffer"].append(samples)
         return outputs(state)
 
     if state.get("speech_detected", False):
         state["silence_frames"] = state.get("silence_frames", 0) + 1
+        state["silence_seconds"] = state.get("silence_seconds", 0.0) + chunk_duration
         state["audio_buffer"].append(samples)
 
-        if state["silence_frames"] >= _SILENCE_FRAMES_TO_END:
+        if state["silence_seconds"] >= _SILENCE_SECONDS_TO_END:
             utterance = np.concatenate(state["audio_buffer"])
             duration = len(utterance) / _SAMPLE_RATE
 
@@ -339,27 +349,54 @@ def process_asl_chunk(
             state["audio_buffer"] = []
             state["speech_detected"] = False
             state["silence_frames"] = 0
+            state["silence_seconds"] = 0.0
 
             if duration < _MIN_UTTERANCE_SECONDS:
                 logger.info(
-                    "ASL VAD: end-of-utterance but too short (%.2fs < %.2fs), discarding",
+                    "[ASL PIPELINE] end-of-utterance too short (%.2fs < %.2fs), discarding",
                     duration,
                     _MIN_UTTERANCE_SECONDS,
                 )
                 return outputs(state)
 
             logger.info(
-                "ASL VAD: end-of-utterance duration=%.2fs (%d samples), running Whisper",
+                "[ASL PIPELINE] end-of-utterance after %.2fs silence, duration=%.2fs (%d samples), running Whisper",
+                _SILENCE_SECONDS_TO_END,
                 duration,
                 utterance.size,
             )
+            logger.info("[ASL PIPELINE] before Groq Whisper STT call")
             transcript = transcribe_with_groq_whisper(utterance, _SAMPLE_RATE, language=lang_for_whisper)
             transcript = (transcript or "").strip()
             if not transcript:
-                logger.info("ASL VAD: Whisper returned empty transcript")
+                logger.info("[ASL PIPELINE] Whisper returned empty transcript")
                 return outputs(state)
+            transcript_lc = transcript.lower()
+            blocked_transcripts = {
+                "thank you",
+                "thank you.",
+                "thank you for watching",
+                "thank you for watching.",
+                "bye",
+                "bye.",
+                "thanks",
+                "thanks.",
+            }
+            if transcript_lc in blocked_transcripts:
+                logger.info("[ASL PIPELINE] transcript discarded by blocklist: %s", transcript)
+                return outputs(state)
+            alpha_word_count = sum(1 for w in transcript.split() if re.search(r"[A-Za-z]", w))
+            if alpha_word_count < 2:
+                logger.info(
+                    "[ASL PIPELINE] transcript discarded: fewer than 2 alphabetic words (%d): %s",
+                    alpha_word_count,
+                    transcript,
+                )
+                return outputs(state)
+            logger.info("[ASL PIPELINE] transcript returned: %s", transcript)
 
             gloss = english_to_asl_gloss(transcript)
+            logger.info("[ASL PIPELINE] gloss returned: %s", gloss)
             words = gloss_to_fingerspell_data(gloss)
 
             state["utterance_count"] = state.get("utterance_count", 0) + 1
@@ -374,7 +411,7 @@ def process_asl_chunk(
                 state["asl_history"] = state["asl_history"][-_MAX_HISTORY_UTTERANCES:]
 
             logger.info(
-                "ASL VAD: utterance #%s transcribed (%d chars)",
+                "[ASL PIPELINE] utterance #%s transcribed (%d chars)",
                 state["utterance_count"],
                 len(transcript),
             )
