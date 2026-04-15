@@ -156,3 +156,4 @@ def trigger_model_pipeline_dag(
         return 127, "", "docker CLI not found. Install Docker and use Docker Compose v2."
     except subprocess.TimeoutExpired:
         return 124, "\n\n".join(logs), f"Timeout after {timeout_sec}s waiting for docker compose exec."
+
