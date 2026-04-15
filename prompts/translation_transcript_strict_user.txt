@@ -1,0 +1,5 @@
+Translate from {source_language} to {target_language}.
+Return only the translated utterance text.
+
+Utterance:
+{source_text}

@@ -594,9 +594,16 @@ def run_ui_audio_analysis(
         seg["emotion"] = emotion
         seg["emotion_confidence"] = conf
 
-        rich_lines.append(
-            f"[{label} — estimated {g_disp}, {emotion}]: {seg.get('text', '').strip()}"
-        )
+        meta_parts: list[str] = []
+        if g_disp != "unknown":
+            meta_parts.append(f"estimated {g_disp}")
+        if emotion != "unknown":
+            meta_parts.append(emotion)
+        if meta_parts:
+            prefix = f"[{label} — {', '.join(meta_parts)}]"
+        else:
+            prefix = f"[{label}]"
+        rich_lines.append(f"{prefix}: {seg.get('text', '').strip()}")
 
     # Per-speaker summaries
     summaries: list[dict[str, Any]] = []
