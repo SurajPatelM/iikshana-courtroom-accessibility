@@ -17,6 +17,7 @@ import json
 import logging
 import sys
 from pathlib import Path
+from urllib.parse import quote
 
 import numpy as np
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -202,6 +203,133 @@ async def ws_session(ws: WebSocket):
         logger.info("WebSocket disconnected.")
     except Exception as exc:
         logger.exception("WebSocket error: %s", exc)
+        try:
+            await ws.send_text(json.dumps({"type": "error", "message": str(exc)}))
+        except Exception:
+            pass
+
+
+@app.websocket("/ws/asl")
+async def ws_asl_session(ws: WebSocket):
+    await ws.accept()
+    logger.info("[ASL BACKEND] websocket accepted")
+
+    from demo.asl_translation import make_initial_asl_state, process_asl_chunk  # noqa: PLC0415
+
+    state = make_initial_asl_state()
+    source_lang: str | None = None
+    sample_rate = 16_000
+    prev_english_block = ""
+    prev_gloss_block = ""
+    prev_signmt_url = ""
+    chunk_count = 0
+    saw_first_chunk = False
+
+    loop = asyncio.get_event_loop()
+
+    try:
+        while True:
+            msg = await ws.receive()
+
+            if "text" in msg and msg["text"]:
+                try:
+                    data = json.loads(msg["text"])
+                except json.JSONDecodeError:
+                    continue
+
+                if data.get("type") == "config":
+                    source_lang = data.get("source_lang")
+                    sample_rate = int(data.get("sample_rate", 16_000))
+                    logger.info(
+                        "[ASL BACKEND] config received src=%s sr=%d",
+                        source_lang,
+                        sample_rate,
+                    )
+                    await ws.send_text(json.dumps({"type": "status", "message": "ASL config received"}))
+                elif data.get("type") == "stop":
+                    logger.info("[ASL BACKEND] client requested stop")
+                    break
+
+            elif "bytes" in msg and msg["bytes"]:
+                raw_bytes = msg["bytes"]
+                samples = np.frombuffer(raw_bytes, dtype=np.float32)
+                if samples.size == 0:
+                    logger.info("[ASL BACKEND] empty audio chunk received; skipping")
+                    continue
+                chunk_count += 1
+                if not saw_first_chunk:
+                    saw_first_chunk = True
+                    logger.info("[ASL BACKEND] first binary audio chunk received")
+                    await ws.send_text(json.dumps({"type": "status", "message": "ASL audio chunks received"}))
+                elif chunk_count % 25 == 0:
+                    logger.info("[ASL BACKEND] received audio chunks=%d", chunk_count)
+
+                _state_snap = state
+                _src_override = (
+                    source_lang
+                    if source_lang and source_lang != "Auto-detect"
+                    else None
+                )
+                _chunk_data = (sample_rate, samples)
+                try:
+                    logger.info("[ASL BACKEND] before process_asl_chunk")
+                    await ws.send_text(json.dumps({"type": "status", "message": "Running Groq STT / ASL pipeline"}))
+                    state, english_block, gloss_block, _ = await loop.run_in_executor(
+                        None,
+                        lambda: process_asl_chunk(
+                            _chunk_data,
+                            _state_snap,
+                            source_language_override=_src_override,
+                        ),
+                    )
+                    logger.info("[ASL BACKEND] after process_asl_chunk")
+                except Exception as exc:
+                    logger.exception("[ASL BACKEND] process_asl_chunk failure")
+                    await ws.send_text(json.dumps({"type": "error", "message": str(exc)}))
+                    continue
+
+                english_block = (english_block or "").strip()
+                gloss_block = (gloss_block or "").strip()
+
+                if english_block and english_block != prev_english_block:
+                    logger.info("[ASL BACKEND] sending transcript (%d chars)", len(english_block))
+                    await ws.send_text(json.dumps({
+                        "type": "transcript",
+                        "text": english_block,
+                    }))
+                    await ws.send_text(json.dumps({"type": "status", "message": "Transcript generated"}))
+                    prev_english_block = english_block
+
+                    last_line = ""
+                    lines = [ln.strip() for ln in english_block.splitlines() if ln.strip()]
+                    if lines:
+                        last_line = lines[-1]
+                    if last_line:
+                        truncated = last_line[:80]
+                        encoded = quote(truncated, safe="")
+                        signmt_url = f"https://sign.mt/?spl=en&sl=ase&text={encoded}"
+                        if signmt_url != prev_signmt_url:
+                            logger.info("[ASL BACKEND] sending signmt_url")
+                            await ws.send_text(json.dumps({
+                                "type": "signmt_url",
+                                "url": signmt_url,
+                            }))
+                            await ws.send_text(json.dumps({"type": "status", "message": "sign.mt URL generated"}))
+                            prev_signmt_url = signmt_url
+
+                if gloss_block and gloss_block != prev_gloss_block:
+                    logger.info("[ASL BACKEND] sending gloss (%d chars)", len(gloss_block))
+                    await ws.send_text(json.dumps({
+                        "type": "gloss",
+                        "text": gloss_block,
+                    }))
+                    await ws.send_text(json.dumps({"type": "status", "message": "ASL gloss generated"}))
+                    prev_gloss_block = gloss_block
+
+    except WebSocketDisconnect:
+        logger.info("[ASL BACKEND] websocket disconnected")
+    except Exception as exc:
+        logger.exception("[ASL BACKEND] websocket error: %s", exc)
         try:
             await ws.send_text(json.dumps({"type": "error", "message": str(exc)}))
         except Exception:
