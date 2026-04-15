@@ -5,7 +5,7 @@ on:
   workflow_run:
     workflows: ["CI"]
     types: [completed]
-    branches: [deployment-backend]
+    branches: [expo]
 
 env:
   GCP_PROJECT: iikshana-mlops
@@ -16,7 +16,7 @@ env:
 
 jobs:
   deploy-backend:
-    name: Build, Push & Deploy to Cloud Run
+    name: Build, Push & Deploy Backend to Cloud Run
     runs-on: ubuntu-latest
     if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
 
@@ -36,42 +36,44 @@ jobs:
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
         with:
-          project_id: ${{ env.GCP_PROJECT_ID }}
+          project_id: ${{ env.GCP_PROJECT }}
 
       - name: Authenticate Docker to Artifact Registry
         run: gcloud auth configure-docker us-east4-docker.pkg.dev --quiet
 
-      - name: Build Docker image
+      - name: Build backend Docker image
         run: |
           docker build \
             --no-cache \
             -t us-east4-docker.pkg.dev/iikshana-mlops/iikshana-docker/iikshana-backend:latest \
             -f backend/Dockerfile .
 
-      - name: Push Docker image
+      - name: Push backend Docker image
         run: |
           docker push us-east4-docker.pkg.dev/iikshana-mlops/iikshana-docker/iikshana-backend:latest
-          
-      - name: Deploy to Cloud Run
+
+      - name: Deploy backend to Cloud Run
         run: |
           gcloud run deploy iikshana-backend \
             --image us-east4-docker.pkg.dev/iikshana-mlops/iikshana-docker/iikshana-backend:latest \
             --region us-east4 \
             --cpu-boost \
             --timeout=600 \
-            --port 8080 \
+            --port 8000 \
             --memory 2Gi \
             --cpu 1 \
-            --set-env-vars "PYTHONPATH=${{secrets.PYTHONPATH}},CORS_ORIGINS=${{secrets.FRONTEND}},ELEVENLABS_API_KEY=${{ secrets.ELEVENLABS_API_KEY }},GROQ_API_KEY=${{ secrets.GROQ_API_KEY }}" \
-            --quiet
+            --allow-unauthenticated \
+            --set-env-vars "PYTHONPATH=${{ secrets.PYTHONPATH }},GROQ_API_KEY=${{ secrets.GROQ_API_KEY }},ELEVENLABS_API_KEY=${{ secrets.ELEVENLABS_API_KEY }},GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }},HF_API_TOKEN=${{ secrets.HF_API_TOKEN }}"
 
       - name: Deployment summary
         run: |
-          URL=$(gcloud run services describe iikshana-backend \
+          URL=$(gcloud run services describe ${{ env.CLOUD_RUN_SERVICE }} \
+            --project ${{ env.GCP_PROJECT }} \
             --region ${{ env.GCP_REGION }} \
-            --format 'value(status.url)')
+            --format='value(status.url)')
           echo "=========================================="
           echo "Backend deployed successfully!"
           echo "Service URL: $URL"
-          echo "Image: backend:${{ github.sha }}"
+          echo "Commit SHA: ${{ github.sha }}"
+          echo "Branch: ${{ github.ref_name }}"
           echo "=========================================="
