@@ -106,11 +106,21 @@ async def ws_session(ws: WebSocket):
     async def _process_audio_bytes(raw_bytes: bytes) -> None:
         nonlocal state, prev_utterance_count
 
+        logger.info("Processing audio bytes from websocket: %d bytes", len(raw_bytes))
         samples = np.frombuffer(raw_bytes, dtype=np.float32)
+        logger.info("Decoded audio samples: %d samples", samples.size)
         if samples.size == 0:
+            logger.info("Audio bytes decoded to empty sample buffer; skipping")
             return
 
         chunk_data = (sample_rate, samples)
+        logger.info(
+            "Running process_audio_chunk: sample_rate=%d config=%s tts=%s source_lang=%s",
+            sample_rate,
+            config_id,
+            tts_enabled,
+            source_lang,
+        )
 
         # Run blocking I/O (STT + translation + optional TTS) in a thread pool
         _state_snap = state
@@ -119,21 +129,29 @@ async def ws_session(ws: WebSocket):
         _cfg        = config_id
         _tts        = tts_enabled
 
-        new_state, _html, status, audio_path = await loop.run_in_executor(
-            None,
-            lambda: process_audio_chunk(
-                chunk_data,
-                _state_snap,
-                _tgt,
-                _cfg,
-                tts_enabled=_tts,
-                source_language_override=_src,
-            ),
-        )
+        try:
+            new_state, _html, status, audio_path = await loop.run_in_executor(
+                None,
+                lambda: process_audio_chunk(
+                    chunk_data,
+                    _state_snap,
+                    _tgt,
+                    _cfg,
+                    tts_enabled=_tts,
+                    source_language_override=_src,
+                ),
+            )
+        except Exception as exc:
+            logger.exception("process_audio_chunk failed")
+            await ws.send_text(json.dumps({"type": "error", "message": str(exc)}))
+            return
+
+        logger.info("process_audio_chunk completed: status=%s audio_path=%s", status, bool(audio_path))
         state = new_state
 
         utterances    = state.get("utterances", [])
         current_count = len(utterances)
+        logger.info("Utterances after processing: %d (prev %d)", current_count, prev_utterance_count)
 
         # Push any new utterance to the frontend
         if current_count > prev_utterance_count:
@@ -148,6 +166,7 @@ async def ws_session(ws: WebSocket):
                 "target_lang": last.get("target_lang", ""),
             }))
             prev_utterance_count = current_count
+            logger.info("Sent transcript update to frontend")
 
         # If TTS produced audio, send it as base64-encoded MP3
         if audio_path:
@@ -170,10 +189,12 @@ async def ws_session(ws: WebSocket):
         # Forward status messages
         if status:
             await ws.send_text(json.dumps({"type": "status", "message": status}))
+            logger.info("Sent status message to frontend: %s", status)
 
     try:
         while True:
             msg = await ws.receive()
+            logger.info("WebSocket message received: %s", {"type": msg.get("type"), "text": bool(msg.get("text")), "bytes": bool(msg.get("bytes"))})
 
             if msg.get("type") == "websocket.disconnect":
                 logger.info("Client disconnected (disconnect frame).")
@@ -184,7 +205,10 @@ async def ws_session(ws: WebSocket):
                 try:
                     data = json.loads(msg["text"])
                 except json.JSONDecodeError:
+                    logger.warning("Failed to decode JSON text frame")
                     continue
+
+                logger.info("Text frame payload type=%s", data.get("type"))
 
                 if data.get("type") == "config":
                     target_lang = _to_lang_code(data.get("target_lang", "Spanish"))
@@ -199,9 +223,11 @@ async def ws_session(ws: WebSocket):
                     await ws.send_text(json.dumps({"type": "status", "message": "Connected — start speaking"}))
 
                 elif data.get("type") == "audio" and isinstance(data.get("data"), str):
+                    logger.info("Received base64 audio text frame, len=%d", len(data.get("data", "")))
                     try:
                         raw_bytes = base64.b64decode(data["data"])
-                    except (TypeError, ValueError):
+                    except (TypeError, ValueError) as exc:
+                        logger.warning("Base64 decode failed: %s", exc)
                         continue
                     await _process_audio_bytes(raw_bytes)
 
@@ -210,10 +236,17 @@ async def ws_session(ws: WebSocket):
                     break
                 elif data.get("type") == "ping":
                     await ws.send_text(json.dumps({"type": "pong"}))
+                    logger.info("Responded to ping")
+                else:
+                    logger.info("Unhandled text frame type: %s", data.get("type"))
 
             # ── Binary frame: Float32 PCM chunk ────────────────────────────────
             elif "bytes" in msg and msg["bytes"]:
+                logger.info("Received binary audio frame: %d bytes", len(msg["bytes"]))
                 await _process_audio_bytes(msg["bytes"])
+
+            else:
+                logger.info("Received unsupported websocket frame: %s", msg)
 
     except WebSocketDisconnect:
         logger.info("WebSocket disconnected.")
