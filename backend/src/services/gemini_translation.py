@@ -8,12 +8,15 @@ simple function for translating text between languages.
 
 from __future__ import annotations
 
+import logging
 import math
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Optional
 
 import yaml
+
+logger = logging.getLogger("iikshana.services.gemini_translation")
 
 from .gemini_service import GeminiClient
 from .groq_service import GroqClient
@@ -140,6 +143,9 @@ def translate_text(
     YAML config for sweeps and sensitivity analysis.
     """
     if translation_skipped_no_source(source_text):
+        logger.info(
+            "translate_text: skipping translation because source text is empty or no-speech placeholder"
+        )
         return EMPTY_TRANSCRIPTION_MESSAGE_EN
 
     src = _normalize_translation_source(source_text)
@@ -157,6 +163,14 @@ def translate_text(
     client = _get_text_client(config)
     temp = config.temperature if temperature is None else float(temperature)
     tp = config.top_p if top_p is None else float(top_p)
+    logger.debug(
+        "translate_text: config_id=%s provider=%s model=%s source_language=%s target_language=%s",
+        config_id,
+        config.provider,
+        config.model_name,
+        source_language,
+        target_language,
+    )
     max_tok = (
         config.max_output_tokens
         if max_output_tokens is None

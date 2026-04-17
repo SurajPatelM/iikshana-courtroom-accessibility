@@ -25,8 +25,10 @@ logger = logging.getLogger("iikshana.live_translation")
 # ---------------------------------------------------------------------------
 # VAD tuning constants
 # ---------------------------------------------------------------------------
-_ENERGY_THRESHOLD = 0.008
+_ENERGY_THRESHOLD = 0.002
+_PEAK_THRESHOLD = 0.025
 _SILENCE_FRAMES_TO_END = 6
+_SILENCE_SECONDS_TO_END = 0.5
 _MIN_UTTERANCE_SECONDS = 0.4
 _SAMPLE_RATE = 16_000
 
@@ -45,6 +47,7 @@ def make_initial_state() -> dict:
     return {
         "audio_buffer": [],
         "silence_frames": 0,
+        "silence_seconds": 0.0,
         "speech_detected": False,
         "utterances": [],  # List of utterance dicts for card display
         "utterance_count": 0,
@@ -83,14 +86,18 @@ def process_audio_chunk(
         logger.info("process_audio_chunk: samples.size == 0 after conversion")
         return state, _live_translations_display_html(state.get("utterances", [])), "", None
 
+    chunk_duration = len(samples) / _SAMPLE_RATE
     rms = float(np.sqrt(np.mean(samples ** 2)))
-    is_speech = rms > _ENERGY_THRESHOLD
+    peak = float(np.max(np.abs(samples)))
+    is_speech = rms > _ENERGY_THRESHOLD or peak > _PEAK_THRESHOLD
     logger.info(
-        "process_audio_chunk: src_sr=%s raw_shape=%s samples=%s rms=%.8f is_speech=%s",
+        "process_audio_chunk: src_sr=%s raw_shape=%s samples=%s duration=%.3fs rms=%.8f peak=%.8f is_speech=%s",
         src_sr,
         np.asarray(raw_samples).shape,
         samples.shape,
+        chunk_duration,
         rms,
+        peak,
         is_speech,
     )
 
@@ -98,6 +105,7 @@ def process_audio_chunk(
     state = dict(state)
     state["audio_buffer"] = list(state.get("audio_buffer", []))
     state["utterances"] = list(state.get("utterances", []))
+    state["silence_seconds"] = float(state.get("silence_seconds", 0.0))
 
     if is_speech:
         state["speech_detected"] = True
@@ -115,14 +123,19 @@ def process_audio_chunk(
 
     if state.get("speech_detected", False):
         state["silence_frames"] = state.get("silence_frames", 0) + 1
+        state["silence_seconds"] = state.get("silence_seconds", 0.0) + chunk_duration
         state["audio_buffer"].append(samples)
         logger.info(
-            "process_audio_chunk: continuing silence; silence_frames=%d buffer_frames=%d",
+            "process_audio_chunk: continuing silence; silence_frames=%d silence_seconds=%.3f buffer_frames=%d",
             state["silence_frames"],
+            state["silence_seconds"],
             len(state["audio_buffer"]),
         )
 
-        if state["silence_frames"] >= _SILENCE_FRAMES_TO_END:
+        if (
+            state["silence_frames"] >= _SILENCE_FRAMES_TO_END
+            or state["silence_seconds"] >= _SILENCE_SECONDS_TO_END
+        ):
             utterance = np.concatenate(state["audio_buffer"])
             duration = len(utterance) / _SAMPLE_RATE
 
@@ -130,6 +143,13 @@ def process_audio_chunk(
             state["audio_buffer"] = []
             state["speech_detected"] = False
             state["silence_frames"] = 0
+            state["silence_seconds"] = 0.0
+
+            logger.info(
+                "process_audio_chunk: ending utterance; duration=%.3f seconds buffer_frames=%d",
+                duration,
+                len(state["audio_buffer"]),
+            )
 
             if duration < _MIN_UTTERANCE_SECONDS:
                 return state, _live_translations_display_html(state["utterances"]), "", None

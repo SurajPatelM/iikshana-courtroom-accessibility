@@ -148,6 +148,12 @@ class RealtimeAudioSession:
             )
             return None
 
+        logger.debug(
+            "[session=%s] handle_chunk: raw_chunk_size=%s src_sr=%s",
+            self.session_id,
+            raw_chunk.size if raw_chunk is not None else 0,
+            src_sr,
+        )
         if raw_chunk is None or raw_chunk.size == 0:
             return None
 
@@ -176,6 +182,11 @@ class RealtimeAudioSession:
         """
         wav_bytes = self._preprocessor.to_wav_bytes(clean_chunk)
 
+        logger.debug(
+            "[session=%s] _transcribe: writing %d bytes to temporary WAV",
+            self.session_id,
+            len(wav_bytes),
+        )
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as fh:
             fh.write(wav_bytes)
             tmp_path = Path(fh.name)

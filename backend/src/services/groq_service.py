@@ -6,12 +6,15 @@ Uses the OpenAI-compatible chat completions endpoint exposed by Groq.
 
 from __future__ import annotations
 
+import logging
 import os
 import random
 import time
 from typing import Optional
 
 import requests
+
+logger = logging.getLogger("iikshana.services.groq_service")
 
 
 def _groq_backoff_seconds(response: requests.Response | None, attempt: int) -> float:
@@ -81,15 +84,29 @@ class GroqClient:
             "max_tokens": max_output_tokens,
         }
 
+        logger.info(
+            "GroqClient.generate_text: model=%s prompt_length=%d temperature=%s top_p=%s max_tokens=%s system_prompt=%s",
+            self._model_name,
+            len(prompt) if prompt is not None else 0,
+            temperature,
+            top_p,
+            max_output_tokens,
+            bool(system_prompt),
+        )
         last_error: requests.Response | None = None
         response: requests.Response | None = None
         max_attempts = 12
         for attempt in range(max_attempts):
+            logger.debug("Groq request attempt %d/%d", attempt + 1, max_attempts)
             try:
                 resp = requests.post(
                     self._endpoint, headers=headers, json=body, timeout=120
                 )
+                logger.debug("Groq response status=%s", resp.status_code)
                 if resp.status_code == 429:
+                    logger.warning(
+                        "Groq rate limit encountered on attempt %d", attempt + 1
+                    )
                     last_error = resp
                     time.sleep(_groq_backoff_seconds(resp, attempt))
                     continue
@@ -108,11 +125,15 @@ class GroqClient:
             raise RuntimeError("Unexpected Groq retry exhaustion")
 
         data = response.json()
+        logger.debug("Groq response JSON keys=%s", list(data.keys()) if isinstance(data, dict) else type(data))
 
         try:
             content = data["choices"][0]["message"]["content"]
-            return content.strip()
-        except Exception:
+            result = content.strip()
+            logger.debug("Groq payload parsed result_length=%d", len(result))
+            return result
+        except Exception as exc:
+            logger.warning("Groq response parse failed: %s", exc)
             # Fall back to raw JSON string if parsing fails
             return str(data)
 

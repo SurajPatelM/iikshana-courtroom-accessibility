@@ -80,6 +80,7 @@ def _to_mono(data: np.ndarray) -> np.ndarray:
 
 def _resample(data: np.ndarray, src_sr: int, target_sr: int) -> np.ndarray:
     """Resample data from src_sr to target_sr."""
+    logger.debug("_resample: src_sr=%d target_sr=%d length=%d", src_sr, target_sr, len(data))
     if src_sr == target_sr:
         return data
     if _LIBROSA_AVAILABLE:
@@ -87,11 +88,14 @@ def _resample(data: np.ndarray, src_sr: int, target_sr: int) -> np.ndarray:
         resampled = librosa.resample(
             data.astype(np.float64), orig_sr=src_sr, target_sr=target_sr
         )
+        logger.debug("_resample: used librosa")
         return np.asarray(resampled, dtype=np.float32)
     if _SCIPY_AVAILABLE:
         from scipy import signal as scipy_signal
         num = int(len(data) * target_sr / src_sr)
+        logger.debug("_resample: used scipy signal.resample")
         return np.asarray(scipy_signal.resample(data, num), dtype=np.float32)
+    logger.error("_resample: no resampling backend available")
     raise RuntimeError(
         "Neither librosa nor scipy is available for resampling. "
         "Install at least one: pip install librosa  or  pip install scipy"
@@ -104,14 +108,18 @@ def _high_pass_filter(data: np.ndarray, sr: int, cutoff_hz: float = 80.0) -> np.
     Removes low-frequency rumble (HVAC, footsteps, furniture) below cutoff_hz.
     Speech content sits mostly above ~80 Hz; the signal above cutoff is unchanged.
     """
+    logger.debug("_high_pass_filter: sr=%d cutoff_hz=%s length=%d", sr, cutoff_hz, data.size)
     if not _SCIPY_AVAILABLE or cutoff_hz <= 0 or data.size == 0:
+        logger.debug("_high_pass_filter: skipped (scipy unavailable, no data, or cutoff disabled)")
         return data
     from scipy import signal as scipy_signal
     nyq = sr / 2.0
     if cutoff_hz >= nyq * 0.9:
+        logger.debug("_high_pass_filter: cutoff too high, skipping")
         return data
     b, a = scipy_signal.butter(2, cutoff_hz / nyq, btype="high")
     out = scipy_signal.filtfilt(b, a, data.astype(np.float64))
+    logger.debug("_high_pass_filter: applied")
     return np.asarray(out, dtype=np.float32)
 
 
@@ -132,26 +140,31 @@ def _normalize_loudness(data: np.ndarray, target_db: float = -20.0) -> np.ndarra
     Peak-normalize then scale to target RMS dB.
     Ensures consistent input level for STT regardless of microphone distance.
     """
+    logger.debug("_normalize_loudness: target_db=%s length=%d", target_db, data.size)
     if data.size == 0:
         return data
     peak = np.abs(data).max()
     if peak <= 0:
+        logger.debug("_normalize_loudness: no signal present")
         return data
     data = data / peak
     rms = np.sqrt(np.mean(data ** 2))
     if rms > 0:
         target_linear = 10 ** (target_db / 20.0)
         data = data * (target_linear / rms)
+    logger.debug("_normalize_loudness: peak=%s rms=%s", peak, rms)
     return np.clip(data, -1.0, 1.0).astype(np.float32)
 
 
 def _trim_silence(data: np.ndarray, sr: int, top_db: float = 25.0) -> np.ndarray:
     """Trim leading/trailing silence using energy threshold."""
+    logger.debug("_trim_silence: sr=%d length=%d top_db=%s", sr, data.size, top_db)
     if data.size == 0:
         return data
     if _LIBROSA_AVAILABLE:
         import librosa
         trimmed, _ = librosa.effects.trim(data, top_db=top_db)
+        logger.debug("_trim_silence: used librosa trimmed_length=%d", len(trimmed))
         return np.asarray(trimmed, dtype=np.float32)
     # Fallback: RMS windowing
     win = min(int(0.02 * sr), max(1, len(data) // 4))
@@ -159,8 +172,11 @@ def _trim_silence(data: np.ndarray, sr: int, top_db: float = 25.0) -> np.ndarray
     thresh = np.max(energy) * (10 ** (-top_db / 10))
     idx = np.where(energy >= thresh)[0]
     if len(idx) == 0:
+        logger.debug("_trim_silence: no frames above threshold")
         return data
-    return data[idx[0]: idx[-1] + 1].astype(np.float32)
+    trimmed = data[idx[0]: idx[-1] + 1].astype(np.float32)
+    logger.debug("_trim_silence: trimmed_length=%d", len(trimmed))
+    return trimmed
 
 
 # ---------------------------------------------------------------------------
@@ -184,6 +200,7 @@ def build_noise_profile(data: np.ndarray, sr: int, duration_s: float = 0.5) -> n
         1-D float64 array of length (frame_len // 2 + 1) = 257 bins.
         Returns a zero vector if the chunk is too short (no-op subtraction).
     """
+    logger.info("build_noise_profile: sr=%d duration_s=%.2f data_length=%d", sr, duration_s, len(data))
     frame_len = 512
     hop_len = frame_len // 2
     n_noise_frames = min(20, max(1, int(duration_s * sr) // hop_len))
@@ -236,8 +253,10 @@ def apply_noise_reduction(data: np.ndarray, noise_profile: np.ndarray) -> np.nda
         Denoised float32 array of the same length as `data`.
     """
     if data.size == 0 or noise_profile is None or not np.any(noise_profile):
+        logger.debug("apply_noise_reduction: skipped because no data or empty noise profile")
         return data
 
+    logger.debug("apply_noise_reduction: data_length=%d noise_profile_length=%d", len(data), len(noise_profile))
     frame_len = 512
     hop_len = frame_len // 2
     num_frames = (len(data) - frame_len) // hop_len + 1
@@ -310,13 +329,15 @@ def _vad_silero(data: np.ndarray, sr: int) -> bool:
     import torch
     model, _ = _load_silero_vad()
     if model is None:
+        logger.debug("_vad_silero: silero model unavailable, fallback to energy VAD")
         return _vad_energy(data)
     try:
         tensor = torch.FloatTensor(data)
         confidence: float = model(tensor, sr).item()
+        logger.debug("_vad_silero: confidence=%.3f speech=%s", confidence, confidence >= 0.5)
         return confidence >= 0.5
     except Exception as exc:
-        logger.debug("silero-VAD inference error: %s. Falling back to energy VAD.", exc)
+        logger.warning("_vad_silero inference failed: %s, falling back to energy VAD", exc)
         return _vad_energy(data)
 
 
@@ -338,12 +359,15 @@ def _vad_webrtc(data: np.ndarray, sr: int, aggressiveness: int = 2) -> bool:
         try:
             if vad.is_speech(frame, sr):
                 speech_frames += 1
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("_vad_webrtc frame error: %s", exc)
         total_frames += 1
     if total_frames == 0:
+        logger.debug("_vad_webrtc: no frames available")
         return False
-    return (speech_frames / total_frames) >= 0.3
+    speech_fraction = speech_frames / total_frames
+    logger.debug("_vad_webrtc: speech_frames=%d total_frames=%d fraction=%.3f", speech_frames, total_frames, speech_fraction)
+    return speech_fraction >= 0.3
 
 
 def _vad_energy(data: np.ndarray, threshold_db: float = -40.0) -> bool:
@@ -355,7 +379,9 @@ def _vad_energy(data: np.ndarray, threshold_db: float = -40.0) -> bool:
         return False
     rms = np.sqrt(np.mean(data ** 2))
     rms_db = 20.0 * np.log10(rms + 1e-10)
-    return bool(rms_db > threshold_db)
+    is_voice = bool(rms_db > threshold_db)
+    logger.debug("_vad_energy: rms_db=%.2f threshold_db=%.2f voice=%s", rms_db, threshold_db, is_voice)
+    return is_voice
 
 
 # ---------------------------------------------------------------------------
@@ -422,6 +448,15 @@ class CourtroomAudioPreprocessor:
         self._noise_profile: Optional[np.ndarray] = None
         self._is_calibrated: bool = False
         self._vad_backend: Optional[str] = None  # resolved lazily on first VAD call
+        logger.info(
+            "CourtroomAudioPreprocessor initialized sample_rate=%d high_pass_hz=%s peak_limit_db=%s target_loudness_db=%s vad_enabled=%s vad_aggressiveness=%d",
+            self.sample_rate,
+            self.high_pass_hz,
+            self.peak_limit_db,
+            self.target_loudness_db,
+            self.vad_enabled,
+            self.vad_aggressiveness,
+        )
 
     # ------------------------------------------------------------------
     # Calibration
@@ -485,12 +520,16 @@ class CourtroomAudioPreprocessor:
             return True
 
         backend = self._get_vad_backend()
+        logger.debug("is_voice: using VAD backend=%s", backend)
 
         if backend == "silero":
-            return _vad_silero(data, self.sample_rate)
-        if backend == "webrtcvad":
-            return _vad_webrtc(data, self.sample_rate, self.vad_aggressiveness)
-        return _vad_energy(data)
+            result = _vad_silero(data, self.sample_rate)
+        elif backend == "webrtcvad":
+            result = _vad_webrtc(data, self.sample_rate, self.vad_aggressiveness)
+        else:
+            result = _vad_energy(data)
+        logger.debug("is_voice: result=%s", result)
+        return result
 
     # ------------------------------------------------------------------
     # Main pipeline
@@ -524,8 +563,10 @@ class CourtroomAudioPreprocessor:
             or None if no voice was detected in this chunk.
         """
         if raw_chunk is None or raw_chunk.size == 0:
+            logger.debug("process_chunk: empty raw_chunk")
             return None
 
+        logger.info("process_chunk: src_sr=%d raw_length=%d", src_sr, raw_chunk.size)
         # --- 1. Mono ---
         data = _to_mono(raw_chunk)
 
@@ -554,8 +595,10 @@ class CourtroomAudioPreprocessor:
         data = _trim_silence(data, self.sample_rate)
 
         if data.size == 0:
+            logger.debug("process_chunk: result empty after trimming")
             return None
 
+        logger.info("process_chunk: output_length=%d", data.size)
         return data
 
     # ------------------------------------------------------------------
@@ -573,7 +616,9 @@ class CourtroomAudioPreprocessor:
         buf = io.BytesIO()
         sf.write(buf, data, self.sample_rate, format="WAV", subtype="PCM_16")
         buf.seek(0)
-        return buf.read()
+        output = buf.read()
+        logger.debug("to_wav_bytes: encoded %d bytes", len(output))
+        return output
 
     # ------------------------------------------------------------------
     # Properties

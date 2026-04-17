@@ -6,9 +6,12 @@ Uses the official ElevenLabs SDK. Requires ELEVENLABS_API_KEY.
 
 from __future__ import annotations
 
+import logging
 import os
 from pathlib import Path
 from typing import Any, Optional
+
+logger = logging.getLogger("iikshana.elevenlabs_stt_service")
 
 DEFAULT_STT_MODEL = "scribe_v2"
 AUDIO_EXTENSIONS = (".wav", ".mp3", ".mp4", ".mpeg", ".mpga", ".m4a", ".ogg", ".flac", ".webm")
@@ -34,13 +37,16 @@ def elevenlabs_api_key_from_env() -> str:
             continue
         s = _strip_secret_value(str(raw))
         if s:
+            logger.debug("Resolved ElevenLabs API key from environment variable: %s", name)
             return s
+    logger.debug("No ElevenLabs API key found in environment")
     return ""
 
 
 def _normalize_scribe_chunk(transcription: Any) -> Any:
     chunk = transcription
     if hasattr(transcription, "transcripts") and transcription.transcripts:
+        logger.debug("Normalizing Scribe v2 transcription chunk from transcripts list")
         chunk = transcription.transcripts[0]
     return chunk
 
@@ -48,6 +54,7 @@ def _normalize_scribe_chunk(transcription: Any) -> Any:
 def _get_client(api_key: str) -> Any:
     from elevenlabs.client import ElevenLabs  # noqa: PLC0415
 
+    logger.debug("Creating ElevenLabs client instance")
     return ElevenLabs(api_key=api_key)
 
 
@@ -78,6 +85,14 @@ def transcribe_file_scribe_v2(
         )
 
     client = _get_client(key)
+    logger.info(
+        "transcribe_file_scribe_v2: audio_path=%s model_id=%s diarize=%s tag_audio_events=%s timestamps=%s",
+        path,
+        model_id,
+        diarize,
+        tag_audio_events,
+        timestamps_granularity,
+    )
     with path.open("rb") as audio_f:
         transcription = client.speech_to_text.convert(
             file=audio_f,
@@ -86,7 +101,9 @@ def transcribe_file_scribe_v2(
             tag_audio_events=tag_audio_events,
             timestamps_granularity=timestamps_granularity,
         )
-    return _normalize_scribe_chunk(transcription)
+    chunk = _normalize_scribe_chunk(transcription)
+    logger.debug("transcribe_file_scribe_v2: received transcription chunk %s", repr(chunk))
+    return chunk
 
 
 def transcribe_audio(
@@ -102,6 +119,7 @@ def transcribe_audio(
     ``timeout`` is accepted for API compatibility; the ElevenLabs SDK uses its own HTTP timeouts.
     """
     _ = timeout
+    logger.debug("transcribe_audio: audio_path=%s model=%s timeout=%s", audio_path, model, timeout)
     chunk = transcribe_file_scribe_v2(
         audio_path,
         api_key=api_key,
@@ -110,4 +128,6 @@ def transcribe_audio(
         tag_audio_events=False,
         timestamps_granularity="word",
     )
-    return (getattr(chunk, "text", None) or "").strip()
+    transcript = (getattr(chunk, "text", None) or "").strip()
+    logger.debug("transcribe_audio: transcript length=%d", len(transcript))
+    return transcript
