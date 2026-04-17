@@ -102,13 +102,12 @@ def process_audio_chunk(
     )
     is_speech = rms > active_threshold
     logger.info(
-        "process_audio_chunk: src_sr=%s raw_shape=%s samples=%s rms=%.8f is_speech=%s threshold=%.4f",
+        "process_audio_chunk: src_sr=%s raw_shape=%s samples=%s duration=%.3f rms=%.8f is_speech=%s threshold=%.4f",
         src_sr,
         np.asarray(raw_samples).shape,
         samples.shape,
         chunk_duration,
         rms,
-        peak,
         is_speech,
         active_threshold,
     )
