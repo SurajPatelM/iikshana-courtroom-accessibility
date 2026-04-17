@@ -10,6 +10,7 @@ Called from gradio_expo_app.py via the streaming audio .stream() event.
 from __future__ import annotations
 
 import html
+import logging
 import os
 import tempfile
 from datetime import datetime
@@ -18,6 +19,8 @@ from typing import Any
 
 import numpy as np
 import soundfile as sf
+
+logger = logging.getLogger("iikshana.live_translation")
 
 # ---------------------------------------------------------------------------
 # VAD tuning constants
@@ -72,14 +75,24 @@ def process_audio_chunk(
 
     src_sr, raw_samples = chunk_data
     if raw_samples is None:
+        logger.info("process_audio_chunk: raw_samples is None")
         return state, _live_translations_display_html(state.get("utterances", [])), "", None
 
     samples = _to_16k_mono_float32(np.asarray(raw_samples), int(src_sr))
     if samples.size == 0:
+        logger.info("process_audio_chunk: samples.size == 0 after conversion")
         return state, _live_translations_display_html(state.get("utterances", [])), "", None
 
     rms = float(np.sqrt(np.mean(samples ** 2)))
     is_speech = rms > _ENERGY_THRESHOLD
+    logger.info(
+        "process_audio_chunk: src_sr=%s raw_shape=%s samples=%s rms=%.8f is_speech=%s",
+        src_sr,
+        np.asarray(raw_samples).shape,
+        samples.shape,
+        rms,
+        is_speech,
+    )
 
     # Shallow copy state
     state = dict(state)
@@ -90,7 +103,12 @@ def process_audio_chunk(
         state["speech_detected"] = True
         state["silence_frames"] = 0
         state["audio_buffer"].append(samples)
-        
+        logger.info(
+            "process_audio_chunk: speech detected; buffer_frames=%d buffer_samples=%d",
+            len(state["audio_buffer"]),
+            sum(s.shape[0] for s in state["audio_buffer"]),
+        )
+
         # Show listening indicator
         listening_html = _live_translations_display_html(state["utterances"])
         return state, listening_html, "Listening...", None
@@ -98,6 +116,11 @@ def process_audio_chunk(
     if state.get("speech_detected", False):
         state["silence_frames"] = state.get("silence_frames", 0) + 1
         state["audio_buffer"].append(samples)
+        logger.info(
+            "process_audio_chunk: continuing silence; silence_frames=%d buffer_frames=%d",
+            state["silence_frames"],
+            len(state["audio_buffer"]),
+        )
 
         if state["silence_frames"] >= _SILENCE_FRAMES_TO_END:
             utterance = np.concatenate(state["audio_buffer"])
@@ -122,12 +145,20 @@ def process_audio_chunk(
                 tts_enabled=tts_enabled,
                 source_language_override=source_language_override,
             )
+            logger.info(
+                "process_audio_chunk: stt returned utterance_data=%s status=%s audio_path=%s",
+                bool(utterance_data),
+                status,
+                audio_path,
+            )
             
             if utterance_data:
                 state["utterances"].append(utterance_data)
                 # Keep only last 10 utterances for display
                 if len(state["utterances"]) > 10:
                     state["utterances"] = state["utterances"][-10:]
+            else:
+                logger.info("process_audio_chunk: no utterance_data included after STT")
             
             display_html = _live_translations_display_html(state["utterances"])
             return state, display_html, status, audio_path
@@ -215,7 +246,15 @@ def _stt_and_translate(
 
         api_key = elevenlabs_api_key_from_env()
         if not api_key:
+            logger.error("_stt_and_translate: ElevenLabs API key not set")
             return None, "API key not set", None
+
+        logger.info(
+            "_stt_and_translate: calling ElevenLabs STT; tmp_path=%s model_id=%s diarize=%s",
+            tmp_path,
+            "scribe_v2",
+            False,
+        )
 
         chunk = transcribe_file_scribe_v2(
             tmp_path,
@@ -228,10 +267,16 @@ def _stt_and_translate(
         
         transcript = (getattr(chunk, "text", None) or "").strip()
         if not transcript:
+            logger.info("_stt_and_translate: STT returned empty transcript; chunk=%s", chunk)
             return None, "", None
 
         # Get source language (STT-detect, unless user chose a fixed language)
         lang_code = getattr(chunk, "language_code", None) or ""
+        logger.info(
+            "_stt_and_translate: STT transcript=%s language_code=%s",
+            transcript,
+            lang_code,
+        )
         from demo.audio_analysis_pipeline import scribe_language_code_for_translation
 
         detected = scribe_language_code_for_translation(lang_code)
