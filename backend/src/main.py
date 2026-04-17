@@ -103,6 +103,74 @@ async def ws_session(ws: WebSocket):
 
     loop = asyncio.get_event_loop()
 
+    async def _process_audio_bytes(raw_bytes: bytes) -> None:
+        nonlocal state, prev_utterance_count
+
+        samples = np.frombuffer(raw_bytes, dtype=np.float32)
+        if samples.size == 0:
+            return
+
+        chunk_data = (sample_rate, samples)
+
+        # Run blocking I/O (STT + translation + optional TTS) in a thread pool
+        _state_snap = state
+        _tgt        = target_lang
+        _src        = None if source_lang == "auto" else source_lang
+        _cfg        = config_id
+        _tts        = tts_enabled
+
+        new_state, _html, status, audio_path = await loop.run_in_executor(
+            None,
+            lambda: process_audio_chunk(
+                chunk_data,
+                _state_snap,
+                _tgt,
+                _cfg,
+                tts_enabled=_tts,
+                source_language_override=_src,
+            ),
+        )
+        state = new_state
+
+        utterances    = state.get("utterances", [])
+        current_count = len(utterances)
+
+        # Push any new utterance to the frontend
+        if current_count > prev_utterance_count:
+            last = utterances[-1]
+            await ws.send_text(json.dumps({
+                "type":        "transcript",
+                "speaker":     last.get("speaker", "Speaker"),
+                "original":    last.get("original", ""),
+                "translation": last.get("translation", ""),
+                "timestamp":   last.get("timestamp", ""),
+                "source_lang": last.get("source_lang", ""),
+                "target_lang": last.get("target_lang", ""),
+            }))
+            prev_utterance_count = current_count
+
+        # If TTS produced audio, send it as base64-encoded MP3
+        if audio_path:
+            try:
+                mp3_bytes = Path(audio_path).read_bytes()
+                await ws.send_text(json.dumps({
+                    "type": "audio",
+                    "data": base64.b64encode(mp3_bytes).decode("ascii"),
+                    "mime": "audio/mpeg",
+                }))
+                logger.info("Sent TTS audio (%d bytes)", len(mp3_bytes))
+            except Exception as exc:
+                logger.warning("Failed to read TTS file: %s", exc)
+            finally:
+                try:
+                    Path(audio_path).unlink(missing_ok=True)
+                except Exception:
+                    pass
+
+        # Forward status messages
+        if status:
+            await ws.send_text(json.dumps({"type": "status", "message": status}))
+
     try:
         while True:
             msg = await ws.receive()
@@ -130,6 +198,13 @@ async def ws_session(ws: WebSocket):
                     )
                     await ws.send_text(json.dumps({"type": "status", "message": "Connected — start speaking"}))
 
+                elif data.get("type") == "audio" and isinstance(data.get("data"), str):
+                    try:
+                        raw_bytes = base64.b64decode(data["data"])
+                    except (TypeError, ValueError):
+                        continue
+                    await _process_audio_bytes(raw_bytes)
+
                 elif data.get("type") == "stop":
                     logger.info("Client requested stop.")
                     break
@@ -138,72 +213,7 @@ async def ws_session(ws: WebSocket):
 
             # ── Binary frame: Float32 PCM chunk ────────────────────────────────
             elif "bytes" in msg and msg["bytes"]:
-                raw_bytes = msg["bytes"]
-                samples   = np.frombuffer(raw_bytes, dtype=np.float32)
-
-                if samples.size == 0:
-                    continue
-
-                chunk_data = (sample_rate, samples)
-
-                # Run blocking I/O (STT + translation + optional TTS) in a thread pool
-                _state_snap = state
-                _tgt        = target_lang
-                _src        = None if source_lang == "auto" else source_lang
-                _cfg        = config_id
-                _tts        = tts_enabled
-
-                new_state, _html, status, audio_path = await loop.run_in_executor(
-                    None,
-                    lambda: process_audio_chunk(
-                        chunk_data,
-                        _state_snap,
-                        _tgt,
-                        _cfg,
-                        tts_enabled=_tts,
-                        source_language_override=_src,
-                    ),
-                )
-                state = new_state
-
-                utterances    = state.get("utterances", [])
-                current_count = len(utterances)
-
-                # Push any new utterance to the frontend
-                if current_count > prev_utterance_count:
-                    last = utterances[-1]
-                    await ws.send_text(json.dumps({
-                        "type":        "transcript",
-                        "speaker":     last.get("speaker", "Speaker"),
-                        "original":    last.get("original", ""),
-                        "translation": last.get("translation", ""),
-                        "timestamp":   last.get("timestamp", ""),
-                        "source_lang": last.get("source_lang", ""),
-                        "target_lang": last.get("target_lang", ""),
-                    }))
-                    prev_utterance_count = current_count
-
-                # If TTS produced audio, send it as base64-encoded MP3
-                if audio_path:
-                    try:
-                        mp3_bytes = Path(audio_path).read_bytes()
-                        await ws.send_text(json.dumps({
-                            "type": "audio",
-                            "data": base64.b64encode(mp3_bytes).decode("ascii"),
-                            "mime": "audio/mpeg",
-                        }))
-                        logger.info("Sent TTS audio (%d bytes)", len(mp3_bytes))
-                    except Exception as exc:
-                        logger.warning("Failed to read TTS file: %s", exc)
-                    finally:
-                        try:
-                            Path(audio_path).unlink(missing_ok=True)
-                        except Exception:
-                            pass
-
-                # Forward status messages
-                if status:
-                    await ws.send_text(json.dumps({"type": "status", "message": status}))
+                await _process_audio_bytes(msg["bytes"])
 
     except WebSocketDisconnect:
         logger.info("WebSocket disconnected.")
