@@ -25,8 +25,13 @@ logger = logging.getLogger("iikshana.live_translation")
 # ---------------------------------------------------------------------------
 # VAD tuning constants
 # ---------------------------------------------------------------------------
-_ENERGY_THRESHOLD = 0.002
-_PEAK_THRESHOLD = 0.025
+# Primary energy gate — used to *start* an utterance. Tuned for 16 kHz mono
+# float32 mic input after browser AGC/noise-suppression.
+_ENERGY_THRESHOLD = 0.003
+# Once we are inside an utterance, accept slightly softer frames as speech so
+# normal intra-word dips don't immediately flip us into silence. Anything below
+# this is treated as a silence frame for end-of-utterance detection.
+_IN_UTTERANCE_ENERGY_THRESHOLD = 0.0018
 _SILENCE_FRAMES_TO_END = 6
 _SILENCE_SECONDS_TO_END = 0.5
 _MIN_UTTERANCE_SECONDS = 0.4
@@ -88,10 +93,16 @@ def process_audio_chunk(
 
     chunk_duration = len(samples) / _SAMPLE_RATE
     rms = float(np.sqrt(np.mean(samples ** 2)))
-    peak = float(np.max(np.abs(samples)))
-    is_speech = rms > _ENERGY_THRESHOLD or peak > _PEAK_THRESHOLD
+    # Use a stricter threshold to *start* speech, and a looser one once we are
+    # already mid-utterance. This stops a single loud frame from being dropped
+    # just because the next frame dipped slightly below the start threshold.
+    already_in_utterance = bool(state.get("speech_detected", False))
+    active_threshold = (
+        _IN_UTTERANCE_ENERGY_THRESHOLD if already_in_utterance else _ENERGY_THRESHOLD
+    )
+    is_speech = rms > active_threshold
     logger.info(
-        "process_audio_chunk: src_sr=%s raw_shape=%s samples=%s duration=%.3fs rms=%.8f peak=%.8f is_speech=%s",
+        "process_audio_chunk: src_sr=%s raw_shape=%s samples=%s rms=%.8f is_speech=%s threshold=%.4f",
         src_sr,
         np.asarray(raw_samples).shape,
         samples.shape,
@@ -99,6 +110,7 @@ def process_audio_chunk(
         rms,
         peak,
         is_speech,
+        active_threshold,
     )
 
     # Shallow copy state
