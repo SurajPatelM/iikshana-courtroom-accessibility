@@ -27,11 +27,11 @@ logger = logging.getLogger("iikshana.live_translation")
 # ---------------------------------------------------------------------------
 # Primary energy gate — used to *start* an utterance. Tuned for 16 kHz mono
 # float32 mic input after browser AGC/noise-suppression.
-_ENERGY_THRESHOLD = 0.003
+_ENERGY_THRESHOLD = 0.0004
 # Once we are inside an utterance, accept slightly softer frames as speech so
 # normal intra-word dips don't immediately flip us into silence. Anything below
 # this is treated as a silence frame for end-of-utterance detection.
-_IN_UTTERANCE_ENERGY_THRESHOLD = 0.0018
+_IN_UTTERANCE_ENERGY_THRESHOLD = 0.00025
 _SILENCE_FRAMES_TO_END = 6
 _SILENCE_SECONDS_TO_END = 0.5
 _MIN_UTTERANCE_SECONDS = 0.4
