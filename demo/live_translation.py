@@ -270,10 +270,17 @@ def _stt_and_translate(
         sf.write(str(tmp_path), audio, _SAMPLE_RATE, subtype="PCM_16")
 
         # --- STT ---
-        from backend.src.services.elevenlabs_stt_service import (
-            elevenlabs_api_key_from_env,
-            transcribe_file_scribe_v2,
-        )
+        try:
+            from backend.src.services.elevenlabs_stt_service import (  # type: ignore
+                elevenlabs_api_key_from_env,
+                transcribe_file_scribe_v2,
+            )
+        except ModuleNotFoundError:
+            # Cloud Run backend container exposes services under src.services.
+            from src.services.elevenlabs_stt_service import (  # type: ignore
+                elevenlabs_api_key_from_env,
+                transcribe_file_scribe_v2,
+            )
 
         api_key = elevenlabs_api_key_from_env()
         if not api_key:
@@ -318,7 +325,10 @@ def _stt_and_translate(
             source_lang = detected
 
         # --- Translate ---
-        from backend.src.services.gemini_translation import translate_text
+        try:
+            from backend.src.services.gemini_translation import translate_text  # type: ignore
+        except ModuleNotFoundError:
+            from src.services.gemini_translation import translate_text  # type: ignore
         
         translated = translate_text(
             source_text=transcript,
