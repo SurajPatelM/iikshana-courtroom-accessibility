@@ -2482,7 +2482,15 @@
     async function startRecording() {
       // 1. Mic permission
       try {
-        _stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+        _stream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            echoCancellation: false,
+            noiseSuppression: false,
+            autoGainControl: false,
+            channelCount: 1,
+          },
+          video: false,
+        });
       } catch (err) {
         setLiveStatus('Mic denied', 'error');
         alert('Microphone access denied. Please allow mic access and try again.');
@@ -2617,7 +2625,15 @@
       console.log('[ASL FRONTEND] startAslRecording()');
       setAslStatus('Requesting microphone...', 'connecting');
       try {
-        _aslStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+        _aslStream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            echoCancellation: false,
+            noiseSuppression: false,
+            autoGainControl: false,
+            channelCount: 1,
+          },
+          video: false,
+        });
       } catch (err) {
         setAslStatus('Microphone access denied', 'error');
         console.error('[ASL FRONTEND] microphone denied', err);
