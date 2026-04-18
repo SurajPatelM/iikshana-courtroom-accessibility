@@ -23,21 +23,30 @@ from .groq_service import GroqClient
 from .hf_service import HuggingFaceClient
 
 
-# In Docker containers the repository root is mounted at /workspace. When that
-# path does not exist (e.g. local Python run on the host), fall back to the
-# project root by walking up from backend/src/services to the repo root.
+# Resolve the repo root that contains ``config/`` and ``prompts/``. This needs
+# to work in three layouts:
+#   - Local dev:  <repo>/backend/src/services/gemini_translation.py  -> parents[3]
+#   - Docker (Cloud Run):  /app/src/services/gemini_translation.py    -> parents[2]
+#     (Dockerfile does ``COPY backend/src ./src``, stripping backend/)
+#   - Bind-mounted workspace at /workspace
+# Probe candidates in priority order and pick the first one whose ``config/models``
+# directory actually exists, so misconfigured layouts fail loudly later instead of
+# silently looking at /config (which used to happen because parents[3] of
+# /app/src/services/.../py is /).
 _this_file = Path(__file__).resolve()
-if Path("/workspace").exists():
-    REPO_ROOT = Path("/workspace")
-else:
-    # backend/src/services/gemini_translation.py -> repo root is parents[3]
-    # .../backend/src/services -> parents[0]
-    # .../backend/src         -> parents[1]
-    # .../backend             -> parents[2]
-    # .../                    -> parents[3]
-    REPO_ROOT = _this_file.parents[3]
+_candidate_roots = [
+    Path("/workspace"),
+    Path("/app"),
+    _this_file.parents[3],
+    _this_file.parents[2],
+]
+REPO_ROOT = next(
+    (c for c in _candidate_roots if (c / "config" / "models").is_dir()),
+    _this_file.parents[3],
+)
 CONFIG_DIR = REPO_ROOT / "config" / "models"
 PROMPTS_DIR = REPO_ROOT / "prompts"
+logger.info("gemini_translation: REPO_ROOT=%s CONFIG_DIR=%s", REPO_ROOT, CONFIG_DIR)
 
 # Returned instead of calling the model when there is nothing to translate (always English for UX).
 EMPTY_TRANSCRIPTION_MESSAGE_EN = (
