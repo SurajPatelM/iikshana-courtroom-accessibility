@@ -389,7 +389,14 @@ def synthesize_speech_mp3(text: str) -> tuple[bytes | None, str | None]:
         return None, "No text to synthesize."
     if "[EMPTY_TRANSCRIPT]" in stripped:
         return None, None
-    from backend.src.services.elevenlabs_stt_service import elevenlabs_api_key_from_env
+    try:
+        from backend.src.services.elevenlabs_stt_service import (  # type: ignore
+            elevenlabs_api_key_from_env,
+        )
+    except ModuleNotFoundError:
+        from src.services.elevenlabs_stt_service import (  # type: ignore
+            elevenlabs_api_key_from_env,
+        )
 
     api_key = elevenlabs_api_key_from_env()
     if not api_key:
@@ -449,10 +456,16 @@ def run_ui_audio_analysis(
     """
     from elevenlabs.client import ElevenLabs  # noqa: PLC0415
 
-    from backend.src.services.elevenlabs_stt_service import (
-        elevenlabs_api_key_from_env,
-        transcribe_file_scribe_v2,
-    )
+    try:
+        from backend.src.services.elevenlabs_stt_service import (  # type: ignore
+            elevenlabs_api_key_from_env,
+            transcribe_file_scribe_v2,
+        )
+    except ModuleNotFoundError:
+        from src.services.elevenlabs_stt_service import (  # type: ignore
+            elevenlabs_api_key_from_env,
+            transcribe_file_scribe_v2,
+        )
 
     def log(msg: str) -> None:
         if status:

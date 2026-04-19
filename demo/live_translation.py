@@ -361,14 +361,20 @@ def _stt_and_translate(
         if tts_enabled and translated:
             try:
                 from demo.audio_analysis_pipeline import synthesize_speech_mp3
+
                 mp3_bytes, tts_err = synthesize_speech_mp3(translated)
                 if mp3_bytes:
                     tfd, tpath = tempfile.mkstemp(suffix=".mp3")
                     os.close(tfd)
                     Path(tpath).write_bytes(mp3_bytes)
                     audio_path = tpath
+                elif tts_err:
+                    logger.warning("TTS not generated: %s", tts_err)
             except Exception:
-                pass  # Silent fail for TTS
+                logger.exception("TTS failed with exception")
+
+        if tts_enabled and translated and audio_path is None:
+            status = f"{status} (spoken audio unavailable)"
 
         return utterance_data, status, audio_path
 
