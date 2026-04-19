@@ -358,6 +358,7 @@ def _stt_and_translate(
 
         # --- TTS ---
         audio_path: str | None = None
+        tts_diag: str | None = None
         if tts_enabled and translated:
             try:
                 from demo.audio_analysis_pipeline import synthesize_speech_mp3
@@ -370,11 +371,19 @@ def _stt_and_translate(
                     audio_path = tpath
                 elif tts_err:
                     logger.warning("TTS not generated: %s", tts_err)
-            except Exception:
+                    tts_diag = tts_err
+            except Exception as exc:
                 logger.exception("TTS failed with exception")
+                tts_diag = str(exc) or "TTS failed"
 
         if tts_enabled and translated and audio_path is None:
-            status = f"{status} (spoken audio unavailable)"
+            hint = ""
+            if tts_diag:
+                d = tts_diag.strip()
+                if len(d) > 100:
+                    d = d[:97] + "..."
+                hint = f" — {d}"
+            status = f"{status} (spoken output unavailable{hint})"
 
         return utterance_data, status, audio_path
 

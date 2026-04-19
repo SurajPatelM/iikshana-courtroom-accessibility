@@ -2573,12 +2573,21 @@
         } else if (msg.type === 'status') {
           const m = msg.message || '';
           if (m.includes('Connected')) _allowLiveAudioSend = true;
-          if (m.includes('Listening'))     setLiveStatus('Listening…', 'listening');
-          else if (m.includes('Translat')) setLiveStatus('Translating…', 'translating');
+          if (m.includes('spoken output unavailable') || m.includes('spoken audio unavailable')) {
+            const line = m.length > 140 ? m.slice(0, 137) + '…' : m;
+            setLiveStatus(line, 'error');
+            console.warn('[iikshana] TTS / spoken output:', m);
+          } else if (m.includes('Listening')) {
+            setLiveStatus('Listening…', 'listening');
+          } else if (m.includes('Translat')) {
+            setLiveStatus('Translating…', 'translating');
+          }
 
         } else if (msg.type === 'error') {
-          setLiveStatus('Backend error', 'error');
-          console.error('[iikshana]', msg.message);
+          const detail = (msg.message && String(msg.message).trim()) || 'Unknown error';
+          const line = detail.length > 120 ? detail.slice(0, 117) + '…' : detail;
+          setLiveStatus(line, 'error');
+          console.error('[iikshana]', detail);
         }
       };
 
