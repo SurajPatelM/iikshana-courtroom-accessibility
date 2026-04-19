@@ -2292,6 +2292,7 @@
   <!-- =============================================
        JAVASCRIPT
   ============================================= -->
+  <script src="config.js"></script>
   <script>
     // ─── PAGE NAVIGATION ───────────────────────────
     const pages = ['home', 'guide', 'live', 'asl', 'about'];
@@ -2344,9 +2345,13 @@
     }
 
     // ─── LIVE TRANSLATION — WebSocket + Web Audio ─────────────────────────────
-    const PROD_BACKEND_BASE = 'https://iikshana-backend-836930087954.us-east4.run.app';
+    // config.js sets window.__IIKSHANA_BACKEND_BASE__ in Cloud Run; empty → use default below.
+    const DEFAULT_PROD_BACKEND = 'https://iikshana-backend-836930087954.us-east4.run.app';
     const IS_LOCAL = ['localhost', '127.0.0.1'].includes(window.location.hostname);
-    const BACKEND_BASE = IS_LOCAL ? 'http://localhost:8000' : PROD_BACKEND_BASE;
+    const _cfgBackend = (typeof window.__IIKSHANA_BACKEND_BASE__ === 'string' && window.__IIKSHANA_BACKEND_BASE__.trim())
+      ? window.__IIKSHANA_BACKEND_BASE__.trim().replace(/\/$/, '')
+      : '';
+    const BACKEND_BASE = IS_LOCAL ? 'http://localhost:8000' : (_cfgBackend || DEFAULT_PROD_BACKEND);
 
     const WS_URL = BACKEND_BASE.replace(/^http/, 'ws') + '/ws';
     const ASL_WS_URL = BACKEND_BASE.replace(/^http/, 'ws') + '/ws/asl';
@@ -2566,10 +2571,12 @@
         }
       };
 
-      _ws.onerror = () => {
+      _ws.onerror = (ev) => {
+        console.error('[iikshana] WebSocket error', ev);
         if (!_wsConnected) setLiveStatus('Backend unreachable — run the server', 'error');
       };
-      _ws.onclose = () => {
+      _ws.onclose = (ev) => {
+        console.warn('[iikshana] WebSocket closed', { code: ev.code, reason: ev.reason, wasClean: ev.wasClean });
         if (_isRecording && _wsConnected) setLiveStatus('Disconnected', 'error');
         else if (_isRecording && !_wsConnected) setLiveStatus('Cannot connect to backend', 'error');
       };

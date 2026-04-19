@@ -24,9 +24,11 @@ COPY backend/src/services/ ./backend/src/services/
 COPY config/ ./config/
 COPY prompts/ ./prompts/
 
+RUN chmod +x /app/demo/docker-entrypoint.sh
+
 EXPOSE 8080
 
 ENV GRADIO_SERVER_NAME=0.0.0.0
 ENV GRADIO_SERVER_PORT=8080
 
-CMD ["python", "-m", "http.server", "8080", "--directory", "demo"]
+ENTRYPOINT ["/app/demo/docker-entrypoint.sh"]

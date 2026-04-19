@@ -54,12 +54,19 @@ jobs:
           
       - name: Deploy to Cloud Run
         run: |
+          BACKEND_URL=$(gcloud run services describe iikshana-backend \
+            --project ${{ env.GCP_PROJECT }} \
+            --region ${{ env.GCP_REGION }} \
+            --format='value(status.url)')
+          echo "Injecting BACKEND_PUBLIC_URL for WebSocket client: ${BACKEND_URL}"
           gcloud run deploy iikshana-frontend \
             --image us-east4-docker.pkg.dev/iikshana-mlops/iikshana-docker/iikshana-frontend:latest \
             --region us-east4 \
             --port 8080 \
             --memory 2Gi \
-            --set-env-vars "PYTHONPATH=${{secrets.PYTHONPATH}},ELEVENLABS_API_KEY=${{ secrets.ELEVENLABS_API_KEY }},GROQ_API_KEY=${{ secrets.GROQ_API_KEY }}" \
+            --platform managed \
+            --allow-unauthenticated \
+            --set-env-vars "PYTHONPATH=${{secrets.PYTHONPATH}},ELEVENLABS_API_KEY=${{ secrets.ELEVENLABS_API_KEY }},GROQ_API_KEY=${{ secrets.GROQ_API_KEY }},BACKEND_PUBLIC_URL=${BACKEND_URL}" \
             --timeout 300
 
       - name: Deployment summary
