@@ -2367,6 +2367,7 @@
     let _muteGain      = null;   // gain 0: ScriptProcessor needs a sink, not audible monitoring
     let _isRecording   = false;
     let _wsConnected   = false;   // true only after onopen fires
+    let _allowLiveAudioSend = false; // after server confirms config (correct sample_rate)
     let _lastSignMtText = '';
     let _lastAslIframeUrl = '';
     let _lastAslNavigationTime = 0;
@@ -2380,6 +2381,7 @@
     let _aslProcessor = null;
     let _aslMuteGain   = null;
     let _aslSourceNode = null;
+    let _allowAslAudioSend = false;
     let _isAslRecording = false;
 
     function updateAslFromTranscript(text) {
@@ -2528,6 +2530,7 @@
 
       setLiveStatus('Connecting…', 'listening');
 
+      _allowLiveAudioSend = false;
       _ws.onopen = () => {
         _wsConnected = true;
         _ws.send(JSON.stringify({
@@ -2538,7 +2541,7 @@
           config_id:   'translation_flash_v1',
           tts_enabled: document.getElementById('tts-toggle').checked,
         }));
-        setLiveStatus('Listening…', 'listening');
+        setLiveStatus('Connecting…', 'listening');
       };
 
       _ws.onmessage = (event) => {
@@ -2569,6 +2572,7 @@
 
         } else if (msg.type === 'status') {
           const m = msg.message || '';
+          if (m.includes('Connected')) _allowLiveAudioSend = true;
           if (m.includes('Listening'))     setLiveStatus('Listening…', 'listening');
           else if (m.includes('Translat')) setLiveStatus('Translating…', 'translating');
 
@@ -2588,12 +2592,13 @@
         else if (_isRecording && !_wsConnected) setLiveStatus('Cannot connect to backend', 'error');
       };
 
-      // 4. Pump audio chunks to WebSocket
+      // 4. Pump audio chunks to WebSocket (only after server applied config sample_rate)
       _processor.onaudioprocess = (e) => {
-        if (!_ws || _ws.readyState !== WebSocket.OPEN) return;
+        if (!_allowLiveAudioSend || !_ws || _ws.readyState !== WebSocket.OPEN) return;
         const f32 = e.inputBuffer.getChannelData(0);
-        // send a copy — getChannelData returns a live view
-        _ws.send(f32.slice(0).buffer);
+        // Tight byte range — f32.buffer can be larger than the channel view; avoids bad np.frombuffer lengths.
+        const pcm = f32.buffer.slice(f32.byteOffset, f32.byteOffset + f32.byteLength);
+        _ws.send(pcm);
       };
 
       _isRecording = true;
@@ -2603,6 +2608,7 @@
     function stopRecording() {
       _isRecording  = false;
       _wsConnected  = false;
+      _allowLiveAudioSend = false;
 
       if (_processor) { _processor.disconnect(); _processor = null; }
       if (_muteGain) { _muteGain.disconnect(); _muteGain = null; }
@@ -2676,6 +2682,7 @@
       _aslWs.binaryType = 'arraybuffer';
       let sentChunkCount = 0;
 
+      _allowAslAudioSend = false;
       _aslWs.onopen = () => {
         console.log('[ASL FRONTEND] websocket opened');
         _aslWs.send(JSON.stringify({
@@ -2731,6 +2738,7 @@
           processLatestAslItem();
           setAslStatus('sign.mt iframe updated', 'processing');
         } else if (msg.type === 'status') {
+          if ((msg.message || '').includes('ASL config received')) _allowAslAudioSend = true;
           console.log('[ASL FRONTEND][status]', msg.message || '');
         } else if (msg.type === 'error') {
           console.error('[ASL FRONTEND][error]', msg.message || '');
@@ -2748,9 +2756,10 @@
       };
 
       _aslProcessor.onaudioprocess = (e) => {
-        if (!_aslWs || _aslWs.readyState !== WebSocket.OPEN) return;
+        if (!_allowAslAudioSend || !_aslWs || _aslWs.readyState !== WebSocket.OPEN) return;
         const f32 = e.inputBuffer.getChannelData(0);
-        _aslWs.send(f32.slice(0).buffer);
+        const pcm = f32.buffer.slice(f32.byteOffset, f32.byteOffset + f32.byteLength);
+        _aslWs.send(pcm);
         sentChunkCount += 1;
         if (sentChunkCount % 25 === 0) {
           console.log('[ASL FRONTEND] chunks sent:', sentChunkCount);
@@ -2763,6 +2772,7 @@
     function stopAslRecording() {
       console.log('[ASL FRONTEND] stopAslRecording()');
       _isAslRecording = false;
+      _allowAslAudioSend = false;
 
       if (_aslProcessor) { _aslProcessor.disconnect(); _aslProcessor = null; }
       if (_aslMuteGain) { _aslMuteGain.disconnect(); _aslMuteGain = null; }

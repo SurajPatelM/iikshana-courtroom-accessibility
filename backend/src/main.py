@@ -100,6 +100,7 @@ async def ws_session(ws: WebSocket):
     sample_rate  = 16_000
     tts_enabled  = False
     prev_utterance_count = 0
+    config_received = False
 
     loop = asyncio.get_event_loop()
 
@@ -107,6 +108,12 @@ async def ws_session(ws: WebSocket):
         nonlocal state, prev_utterance_count
 
         logger.info("Processing audio bytes from websocket: %d bytes", len(raw_bytes))
+        nb = len(raw_bytes)
+        if nb % 4 != 0:
+            raw_bytes = raw_bytes[: nb - (nb % 4)]
+            logger.warning("Trimmed %d trailing bytes so float32 buffer is aligned", nb % 4)
+        if not raw_bytes:
+            return
         samples = np.frombuffer(raw_bytes, dtype=np.float32)
         logger.info("Decoded audio samples: %d samples", samples.size)
         if samples.size == 0:
@@ -220,16 +227,28 @@ async def ws_session(ws: WebSocket):
                         "Session config — src=%s tgt=%s sr=%d tts=%s config=%s",
                         source_lang, target_lang, sample_rate, tts_enabled, config_id,
                     )
+                    config_received = True
                     await ws.send_text(json.dumps({"type": "status", "message": "Connected — start speaking"}))
 
                 elif data.get("type") == "audio" and isinstance(data.get("data"), str):
+                    if not config_received:
+                        logger.debug("Skipping base64 audio until client config is received")
+                        continue
                     logger.info("Received base64 audio text frame, len=%d", len(data.get("data", "")))
                     try:
                         raw_bytes = base64.b64decode(data["data"])
                     except (TypeError, ValueError) as exc:
                         logger.warning("Base64 decode failed: %s", exc)
                         continue
-                    await _process_audio_bytes(raw_bytes)
+                    try:
+                        await _process_audio_bytes(raw_bytes)
+                    except Exception as exc:
+                        logger.exception("Failed processing base64 audio frame: %s", exc)
+                        try:
+                            await ws.send_text(json.dumps({"type": "error", "message": str(exc)}))
+                        except Exception:
+                            pass
+                        continue
 
                 elif data.get("type") == "stop":
                     logger.info("Client requested stop.")
@@ -242,8 +261,19 @@ async def ws_session(ws: WebSocket):
 
             # ── Binary frame: Float32 PCM chunk ────────────────────────────────
             elif "bytes" in msg and msg["bytes"]:
+                if not config_received:
+                    logger.debug("Skipping binary frame until client config is received")
+                    continue
                 logger.info("Received binary audio frame: %d bytes", len(msg["bytes"]))
-                await _process_audio_bytes(msg["bytes"])
+                try:
+                    await _process_audio_bytes(msg["bytes"])
+                except Exception as exc:
+                    logger.exception("Failed processing binary audio frame: %s", exc)
+                    try:
+                        await ws.send_text(json.dumps({"type": "error", "message": str(exc)}))
+                    except Exception:
+                        pass
+                    continue
 
             else:
                 logger.info("Received unsupported websocket frame: %s", msg)
@@ -273,6 +303,7 @@ async def ws_asl_session(ws: WebSocket):
     state = make_initial_asl_state()
     source_lang: str | None = None
     sample_rate = 16_000
+    asl_config_received = False
     prev_english_block = ""
     prev_gloss_block = ""
     prev_signmt_url = ""
@@ -298,6 +329,7 @@ async def ws_asl_session(ws: WebSocket):
                 if data.get("type") == "config":
                     source_lang = data.get("source_lang")
                     sample_rate = int(data.get("sample_rate", 16_000))
+                    asl_config_received = True
                     logger.info(
                         "[ASL BACKEND] config received src=%s sr=%d",
                         source_lang,
@@ -311,7 +343,15 @@ async def ws_asl_session(ws: WebSocket):
                     await ws.send_text(json.dumps({"type": "pong"}))
 
             elif "bytes" in msg and msg["bytes"]:
+                if not asl_config_received:
+                    logger.debug("[ASL BACKEND] skipping binary until config received")
+                    continue
                 raw_bytes = msg["bytes"]
+                nb = len(raw_bytes)
+                if nb % 4 != 0:
+                    raw_bytes = raw_bytes[: nb - (nb % 4)]
+                if not raw_bytes:
+                    continue
                 samples = np.frombuffer(raw_bytes, dtype=np.float32)
                 if samples.size == 0:
                     logger.info("[ASL BACKEND] empty audio chunk received; skipping")
