@@ -141,6 +141,15 @@ async def ws_session(ws: WebSocket):
                     source_language_override=_src,
                 ),
             )
+            logger.debug(
+                "process_audio_chunk returned: new_state_keys=%s new_state_utterances=%d "
+                "html_len=%d status=%s audio_path=%s",
+                list(new_state.keys()) if isinstance(new_state, dict) else type(new_state).__name__,
+                len(new_state.get("utterances", [])) if isinstance(new_state, dict) else -1,
+                len(_html) if _html else 0,
+                status,
+                audio_path,
+            )
         except Exception as exc:
             logger.exception("process_audio_chunk failed")
             await ws.send_text(json.dumps({"type": "error", "message": str(exc)}))
@@ -148,7 +157,8 @@ async def ws_session(ws: WebSocket):
 
         logger.info("process_audio_chunk completed: status=%s audio_path=%s", status, bool(audio_path))
         state = new_state
-
+        if "utterances" not in state:
+            logger.warning("State missing 'utterances' key after processing chunk")
         utterances    = state.get("utterances", [])
         current_count = len(utterances)
         logger.info("Utterances after processing: %d (prev %d)", current_count, prev_utterance_count)
