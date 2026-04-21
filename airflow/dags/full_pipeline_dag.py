@@ -95,12 +95,13 @@ if [ -s "$RESULTS_JSON" ]; then
   echo "[SKIP] config_search_results already exists: $RESULTS_JSON"
   exit 0
 fi
-CONFIG_IDS="translation_flash_v1,translation_flash_glossary,translation_flash_court,translation_flash_short_prompt,translation_flash_temp03"
+CONFIG_IDS="translation_flash_v1,translation_flash_glossary,translation_flash_court,translation_flash_short_prompt,translation_flash_temp03,translation_groq_llama70b_v1"
 python model-pipeline/scripts/run_config_search.py \
   --split "${SPLIT}" \
   --configs "${CONFIG_IDS}" \
   --metric bleu \
-  --delay 0.0
+  --delay 0.0 \
+  --output "data/processed/${SPLIT}/config_search_results.json"
 echo "=== config search: done ==="
 """
 
@@ -111,7 +112,7 @@ export PYTHONPATH=/workspace
 cd /workspace
 SPLIT="{{ params.get('split', 'dev') }}"
 RESULTS_JSON="data/processed/${SPLIT}/config_search_results.json"
-BEST_CONFIG_ID=$(python -c "import json; print(json.load(open('${RESULTS_JSON}', 'r', encoding='utf-8'))['best_config_id'])" 2>/dev/null || echo "{{ params.get('config_id', 'translation_flash_v1') }}")
+BEST_CONFIG_ID=$(python -c "import json; print(json.load(open('${RESULTS_JSON}', 'r', encoding='utf-8'))['best_config_id'])" 2>/dev/null || echo "{{ params.get('config_id', 'translation_groq_llama70b_v1') }}")
 echo "Best config_id = ${BEST_CONFIG_ID}"
 python model-pipeline/scripts/model_setup.py \
   --split "${SPLIT}" \
@@ -129,7 +130,7 @@ with DAG(
         tags=["iikshana", "data", "pipeline", "full"],
         params={
             "split": "dev",
-            "config_id": "translation_flash_v1",
+            "config_id": "translation_groq_llama70b_v1",
         },
 ) as dag:
 

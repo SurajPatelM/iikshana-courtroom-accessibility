@@ -23,7 +23,8 @@ x-airflow-common: &airflow-common
     AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
     AIRFLOW__CORE__LOAD_DEFAULT_CONNECTIONS: "false"
     AIRFLOW__API__AUTH_BACKENDS: "airflow.api.auth.backend.basic_auth"
-    _PIP_ADDITIONAL_REQUIREMENTS: ${_PIP_ADDITIONAL_REQUIREMENTS:- pandas numpy scipy soundfile librosa pyyaml great-expectations requests tqdm checksumdir dvc dvc-gs google-genai elevenlabs }
+    _PIP_ADDITIONAL_REQUIREMENTS: ${_PIP_ADDITIONAL_REQUIREMENTS:- pandas==2.0.3 numpy==1.24.3 scipy soundfile librosa pyyaml great-expectations requests tqdm checksumdir dvc dvc-gs google-genai mlflow sacrebleu groq}
+    MLFLOW_TRACKING_URI: "file:/workspace/mlruns"
     # DVC + GCS: set in airflow/.env (DVC_GCS_BUCKET=your-bucket, GOOGLE_APPLICATION_CREDENTIALS path)
     GOOGLE_APPLICATION_CREDENTIALS: ${GOOGLE_APPLICATION_CREDENTIALS:-/opt/airflow/.secrets/gcp-dvc-key.json}
     DVC_GCS_BUCKET: ${DVC_GCS_BUCKET:-}

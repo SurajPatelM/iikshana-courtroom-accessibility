@@ -74,7 +74,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--config-id",
         type=str,
-        default="translation_flash_v1",
+        default="translation_groq_llama70b_v1",
         help="Translation model configuration id (config/models/<id>.yaml).",
     )
     parser.add_argument(

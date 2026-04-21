@@ -39,6 +39,7 @@ def test_cli_from_predictions_writes_report(tmp_path: Path):
             "--group-cols",
             "dataset,emotion",
             "--no-plots",
+            "--no-mlflow",
         ],
         cwd=str(REPO),
         env=env,

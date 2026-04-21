@@ -9,15 +9,41 @@ from airflow.operators.python import PythonOperator
 
 import sys
 from pathlib import Path
-PIPELINE_ROOT = Path(__file__).resolve().parent.parent
-if str(PIPELINE_ROOT) not in sys.path:
-    sys.path.insert(0, str(PIPELINE_ROOT))
+
+# Resolve model-pipeline root — works both locally and inside Docker (/workspace mount)
+_DAG_DIR = Path(__file__).resolve().parent
+for _candidate in [
+    Path("/workspace/model-pipeline"),
+    _DAG_DIR.parent / "model-pipeline",
+    _DAG_DIR.parent.parent / "model-pipeline",
+]:
+    if _candidate.exists() and (_candidate / "scripts" / "run_validation.py").exists():
+        if str(_candidate) not in sys.path:
+            sys.path.insert(0, str(_candidate))
+        break
+
+# Also add repo root so backend services (gemini_translation etc.) are importable
+for _root in [Path("/workspace"), _DAG_DIR.parent, _DAG_DIR.parent.parent]:
+    if _root.exists() and (_root / "backend").exists():
+        if str(_root) not in sys.path:
+            sys.path.insert(0, str(_root))
+        break
 
 
 def _run_evaluation(**kwargs):
-    from scripts.evaluate_models import run_evaluation
-    from scripts.utils import PROCESSED_DIR
-    return run_evaluation(data_dir=PROCESSED_DIR, metrics_path=PROCESSED_DIR / "evaluation_metrics.json", use_live_apis=False)
+    from scripts.run_validation import main as run_validation_main
+    import sys as _sys
+    # Run validation on dev split with default config
+    _sys.argv = [
+    "run_validation.py",
+    "--split", "dev",
+    "--configs", "translation_flash_court",
+    "--inputs-basename", "translation_inputs",
+    "--no-plots",
+    "--max-rows", "20",
+    "--delay", "0.5",
+    ]
+    run_validation_main()
 
 
 _default_args = {

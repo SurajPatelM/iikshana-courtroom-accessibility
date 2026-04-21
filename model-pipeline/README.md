@@ -18,7 +18,18 @@ This directory is the **model-development** layer: translation and evaluation on
 | **`backend/src/services/elevenlabs_stt_service.py`** | ElevenLabs **Scribe v2** STT for **`build_translation_inputs_from_audio.py`** and related scripts (`ELEVENLABS_API_KEY`).                                                             |
 | **`model-pipeline/scripts/*.py`**                | Build eval tables, search configs, validate, sensitivity, bias, package, push.                                                                                                               |
 
-**Typical default config:** `translation_flash_v1` (Groq + baseline prompts; see `config/models/translation_flash_v1.yaml`).
+### Translation configs compared (multi-provider)
+
+These YAMLs live under **`config/models/`**. They extend the original Groq “flash” prompt variants with **Google Gemini**, **Groq Llama 3.3 70B**, and **Hugging Face** Marian NMT for side-by-side evaluation (`run_config_search.py`). **Secrets:** `GEMINI_API_KEY` (Gemini), `GROQ_API_KEY` (Groq), `HF_API_TOKEN` (Hugging Face Inference API).
+
+| Config ID | Provider | Model | Parameters | Type |
+| --- | --- | --- | --- | --- |
+| `translation_gemini_flash_compare` | Google Gemini | `gemini-2.0-flash` | Not publicly disclosed | Large multimodal LLM |
+| `translation_groq_llama70b_v1` | Groq | `llama-3.3-70b-versatile` | 70B | Open-weight LLM (Meta) |
+| `translation_hf_v1` | Hugging Face | `Helsinki-NLP/opus-mt-en-es` | ~77M | Marian NMT (encoder–decoder) |
+| `translation_hf_opus_tc_big_v1` | Hugging Face | `Helsinki-NLP/opus-mt-tc-big-en-es` | ~230M | Marian NMT (larger variant) |
+
+**Selected default:** On recent dev evals, **`translation_groq_llama70b_v1`** scored highest on corpus **BLEU** versus the other configs above, so it is the **operational default**: `translate_text` in `gemini_translation.py`, **`model_setup.py`**’s default `--config-id`, Airflow **`mode_setup`** (via **`best_config_id`** in `data/processed/<split>/config_search_results.json`, with param fallback), and the expanded config list in the Airflow DAGs. Re-run **`run_config_search.py`** when you add configs or change data; older **`translation_flash_*`** YAMLs remain available for prompt ablations.
 
 **Live expo (Gradio):** [`demo/gradio_expo_app.py`](../demo/gradio_expo_app.py) — ingests via **`process_one`**, then triggers Docker Airflow **`expo_translation_dag`** by default (**build_translation_inputs → mode_setup**, fixed `config_id`; no config search). Set **`AIRFLOW_MODEL_DAG_ID=model_pipeline_dag`** for **build → config search → mode_setup**. Runbook: [`demo/README.md`](../demo/README.md).
 
@@ -45,7 +56,7 @@ This directory is the **model-development** layer: translation and evaluation on
 | **`model_setup.py`**                                           | Full translation pass for a chosen **`--config-id`** (e.g. best from search); supports STT path when using manifest + WAVs.                                         | **`translation_predictions_<config_id>.csv`** (predictions for bias / reporting).    |
 | **`run_sensitivity_analysis.py`**                              | Sensitivity of metrics to **decoding knobs** and **input strata** (§5).                                                                                             | **`sensitivity_analysis.json`**                                                      |
 | **`run_translation_bias_analysis.py`**                         | Fairlearn **group** metrics (exact match, etc.).                                                                                                                    | **`translation_bias_metrics_<config>.json`**                                         |
-| **`run_model_bias_detection.py`**                              | **Sliced** metrics, disparity vs threshold, mitigation narrative.                                                                                                   | **`model_bias_report_<config>__<group_suffix>.json`** (+ optional PNG).              |
+| **`run_model_bias_detection.py`**                              | **Sliced** metrics, disparity vs threshold, mitigation narrative; **MLflow** scalars (`bias_*`) + report/plot artifacts (use **`--no-mlflow`** to skip).           | **`model_bias_report_<config>__<group_suffix>.json`** (+ optional PNG).              |
 | **`build_model_package.py`** / **`push_model_to_registry.py`** | Tarball (config + prompts + manifest) and **GCP Artifact Registry** upload.                                                                                         | `model-pipeline/artifacts/*.tar.gz`, registry package version.                       |
 
 ### 2.3 Tests
@@ -56,7 +67,7 @@ This directory is the **model-development** layer: translation and evaluation on
 
 ## 3. Hyperparameter tuning
 
-**Meaning here:** choosing among **discrete YAML configs** and decoding parameters, not backprop. Each file under **`config/models/`** is a candidate (e.g. `translation_flash_v1`, `translation_flash_glossary`, `translation_flash_court`, `translation_flash_short_prompt`, `translation_flash_temp03`).
+**Meaning here:** choosing among **discrete YAML configs** and decoding parameters, not backprop. Each file under **`config/models/`** is a candidate (e.g. `translation_flash_v1`, `translation_flash_glossary`, …, plus **`translation_gemini_flash_compare`**, **`translation_groq_llama70b_v1`**, **`translation_hf_v1`**, **`translation_hf_opus_tc_big_v1`** — see the comparison table under **Overview** above).
 
 **Tool:** **`run_config_search.py`**
 
@@ -80,6 +91,14 @@ python model-pipeline/scripts/run_config_search.py --split dev \
   --inputs-basename court_translation_inputs \
   --configs translation_flash_v1,translation_flash_glossary \
   --metric bleu --delay 0.5
+
+# Multi-provider comparison; write under processed for Airflow model_setup
+export GEMINI_API_KEY=...   # Gemini configs
+export HF_API_TOKEN=...     # Hugging Face configs
+python model-pipeline/scripts/run_config_search.py --split dev \
+  --configs translation_gemini_flash_compare,translation_groq_llama70b_v1,translation_hf_v1,translation_hf_opus_tc_big_v1 \
+  --metric bleu --delay 0.5 \
+  --output data/processed/dev/config_search_results.json
 ```
 
 ---
@@ -94,6 +113,8 @@ When validation runs, it can log to **MLflow**:
 - **Tracking URI:** env **`MLFLOW_TRACKING_URI`**, or default **`file:./mlruns`** (local store under repo root)
 - **Run name pattern:** `{config_id}_{split}_{inputs_basename}`
 - **Logged:** params (`config_id`, `split`, `inputs_basename`, `n_samples`, …), metrics (BLEU, chrF, exact match, …), and **artifacts** (e.g. metric plots) when files exist
+
+**Model bias detection (`run_model_bias_detection.py`):** same experiment and tracking URI. Run names look like **`bias_<config_id>_<split>_<group_suffix>`** with param **`run_type=model_bias_detection`**. Metrics include **`bias_overall_exact_match`**, **`bias_fairlearn_exact_match`**, **`bias_fairlearn_mean_sentence_bleu`** (when Fairlearn + sacrebleu run), **`bias_disparity_count`**, **`bias_max_disparity_gap`**, slice min/max exact match, and **`bias_n_samples`**. Artifacts: the JSON report under **`bias_report/`** and optional PNG under **`bias_plots/`**. Pass **`--no-mlflow`** to disable.
 
 Use the MLflow UI against your tracking URI to compare runs over time.
 
@@ -154,7 +175,7 @@ Translation **model** fairness is measured on **slices** of the evaluation table
 | Tool                                   | Role                                                                                                                                                                                                                                                                                           |
 | -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **`run_translation_bias_analysis.py`** | Fairlearn-oriented **group** analysis; **exact match** and related views; writes **`translation_bias_metrics_<config>.json`**.                                                                                                                                                                 |
-| **`run_model_bias_detection.py`**      | **Sliced** metrics (exact match, mean sentence BLEU when **`sacrebleu`** is installed), **disparity** vs **`--disparity-threshold`**, mitigation text; outputs **`model_bias_report_<config_id>__<group_suffix>.json`** and optional **`model_bias_by_dataset_<config>__<group_suffix>.png`**. |
+| **`run_model_bias_detection.py`**      | **Sliced** metrics (exact match, mean sentence BLEU when **`sacrebleu`** is installed), **disparity** vs **`--disparity-threshold`**, mitigation text; outputs **`model_bias_report_<config_id>__<group_suffix>.json`** and optional **`model_bias_by_dataset_<config>__<group_suffix>.png`**. Logs the same metrics to **MLflow** (experiment **`iikshana-translation`**) unless **`--no-mlflow`**. |
 
 **Modes**
 
