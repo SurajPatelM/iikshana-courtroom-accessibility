@@ -6,11 +6,32 @@ Uses the OpenAI-compatible chat completions endpoint exposed by Groq.
 
 from __future__ import annotations
 
+import logging
 import os
+import random
 import time
 from typing import Optional
 
 import requests
+
+logger = logging.getLogger("iikshana.services.groq_service")
+
+
+def _groq_backoff_seconds(response: requests.Response | None, attempt: int) -> float:
+    """Sleep duration after a 429; honor Retry-After when present."""
+    if response is not None:
+        try:
+            ra = response.headers.get("Retry-After")
+        except (AttributeError, TypeError):
+            ra = None
+        if ra is not None and ra != "":
+            try:
+                return min(300.0, float(ra))
+            except (ValueError, TypeError):
+                pass
+    # Exponential backoff capped ~90s + jitter (avoid synchronized retries)
+    base = min(90.0, (2 ** min(attempt, 6)) * 1.25)
+    return base + random.uniform(0.2, 2.0)
 
 
 class GroqClient:
@@ -63,38 +84,56 @@ class GroqClient:
             "max_tokens": max_output_tokens,
         }
 
-        last_error = None
-        for attempt in range(4):  # 4 attempts: 0, 1, 2, 3
+        logger.info(
+            "GroqClient.generate_text: model=%s prompt_length=%d temperature=%s top_p=%s max_tokens=%s system_prompt=%s",
+            self._model_name,
+            len(prompt) if prompt is not None else 0,
+            temperature,
+            top_p,
+            max_output_tokens,
+            bool(system_prompt),
+        )
+        last_error: requests.Response | None = None
+        response: requests.Response | None = None
+        max_attempts = 12
+        for attempt in range(max_attempts):
+            logger.debug("Groq request attempt %d/%d", attempt + 1, max_attempts)
             try:
-                response = requests.post(
-                    self._endpoint, headers=headers, json=body, timeout=60
+                resp = requests.post(
+                    self._endpoint, headers=headers, json=body, timeout=120
                 )
-                if response.status_code == 429:
-                    # Rate limited: wait and retry with exponential backoff
-                    wait_sec = (2 ** attempt) + 2  # 3, 4, 6, 10 seconds
-                    time.sleep(wait_sec)
-                    last_error = response
+                logger.debug("Groq response status=%s", resp.status_code)
+                if resp.status_code == 429:
+                    logger.warning(
+                        "Groq rate limit encountered on attempt %d", attempt + 1
+                    )
+                    last_error = resp
+                    time.sleep(_groq_backoff_seconds(resp, attempt))
                     continue
-                response.raise_for_status()
+                resp.raise_for_status()
+                response = resp
                 break
             except requests.exceptions.HTTPError as e:
                 if e.response is not None and e.response.status_code == 429:
-                    wait_sec = (2 ** attempt) + 2
-                    time.sleep(wait_sec)
                     last_error = e.response
+                    time.sleep(_groq_backoff_seconds(e.response, attempt))
                     continue
                 raise
-        else:
+        if response is None:
             if last_error is not None:
                 last_error.raise_for_status()
-            raise RuntimeError("Unexpected retry exhaustion")
+            raise RuntimeError("Unexpected Groq retry exhaustion")
 
         data = response.json()
+        logger.debug("Groq response JSON keys=%s", list(data.keys()) if isinstance(data, dict) else type(data))
 
         try:
             content = data["choices"][0]["message"]["content"]
-            return content.strip()
-        except Exception:
+            result = content.strip()
+            logger.debug("Groq payload parsed result_length=%d", len(result))
+            return result
+        except Exception as exc:
+            logger.warning("Groq response parse failed: %s", exc)
             # Fall back to raw JSON string if parsing fails
             return str(data)
 

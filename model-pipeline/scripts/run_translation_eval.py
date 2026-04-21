@@ -3,7 +3,7 @@ Model pipeline entry point: run translation on processed data (text or audio).
 
 Uses the same splits as the data pipeline (dev, test, holdout). Reads
 manifest.json (one entry per WAV: file, dataset, speaker_id, emotion). For
-each entry: if the file is audio (WAV, etc.), transcribes it with Groq Whisper
+each entry: if the file is audio (WAV, etc.), transcribes it with ElevenLabs Scribe v2
 (STT) then translates the transcribed text; otherwise generates a courtroom
 phrase from emotion and translates it. Optionally supports translation_inputs
 if you want to supply explicit text instead.
@@ -45,10 +45,10 @@ from backend.src.services.gemini_translation import (
     _get_text_client,
     translate_text,
 )
-from backend.src.services.groq_stt_service import (
-    transcribe_audio,
+from backend.src.services.elevenlabs_stt_service import (
     AUDIO_EXTENSIONS,
     DEFAULT_STT_MODEL,
+    transcribe_audio,
 )
 
 # Same split names as the data pipeline (stratified_split: dev, test, holdout)
@@ -94,7 +94,7 @@ def _parse_args() -> argparse.Namespace:
         "--stt-model",
         type=str,
         default=DEFAULT_STT_MODEL,
-        help="Groq Whisper model for speech-to-text (default whisper-large-v3-turbo).",
+        help="ElevenLabs Scribe model id for speech-to-text (default scribe_v2).",
     )
     parser.add_argument(
         "--no-stt",
@@ -125,7 +125,7 @@ def _run_on_manifest(
 ) -> pd.DataFrame:
     """
     For each manifest entry: if use_stt and the file is audio (WAV etc.), transcribe
-    with Groq Whisper then translate the text; otherwise generate a courtroom phrase
+    with ElevenLabs Scribe v2 then translate the text; otherwise generate a courtroom phrase
     from emotion and translate it.
     """
     config = _load_model_config(config_id)
@@ -240,7 +240,7 @@ def _run_translation_inputs(path: Path, config_id: str) -> pd.DataFrame:
     translations: List[str] = []
     for i, (_, row) in enumerate(df.iterrows()):
         if i > 0:
-            time.sleep(2.0)  # Rate limit: avoid 429 from Groq/API when many rows
+            time.sleep(2.0)  # Rate limit: avoid 429 from cloud APIs when many rows
         t = translate_text(
             source_text=str(row["source_text"]),
             source_language=str(row["source_language"]),

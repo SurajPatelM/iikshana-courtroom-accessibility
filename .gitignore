@@ -21,6 +21,7 @@ sdist/
 var/
 wheels/
 share/python-wheels/
+frontend/node_modules/
 *.egg-info/
 .installed.cfg
 *.egg
@@ -209,6 +210,10 @@ __marimo__/
 
 # GCP/DVC credentials (never commit)
 .secrets/
+
+# Local HTTPS / mkcert (never commit private keys or generated certs)
+.certs/
+localhost+*.pem
 
 data/raw/*
 !data/raw/.gitkeep

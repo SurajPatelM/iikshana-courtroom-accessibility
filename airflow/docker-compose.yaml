@@ -6,6 +6,13 @@
 
 x-airflow-common: &airflow-common
   image: apache/airflow:2.7.0-python3.10
+  # Load secrets from files so they are not wiped by empty `${VAR:-}` interpolation in `environment`.
+  # Put keys in `airflow/.env` and/or repo `.secrets/.env` (same keys as local Gradio).
+  env_file:
+    - path: .env
+      required: false
+    - path: ../.secrets/.env
+      required: false
   environment: &airflow-common-env
     REPO_ROOT: /workspace
     AIRFLOW__CORE__EXECUTOR: LocalExecutor
@@ -21,10 +28,8 @@ x-airflow-common: &airflow-common
     # DVC + GCS: set in airflow/.env (DVC_GCS_BUCKET=your-bucket, GOOGLE_APPLICATION_CREDENTIALS path)
     GOOGLE_APPLICATION_CREDENTIALS: ${GOOGLE_APPLICATION_CREDENTIALS:-/opt/airflow/.secrets/gcp-dvc-key.json}
     DVC_GCS_BUCKET: ${DVC_GCS_BUCKET:-}
-    # API keys (set in airflow/.env, do NOT commit real values)
-    GEMINI_API_KEY: ${GEMINI_API_KEY:-}
-    HF_API_TOKEN: ${HF_API_TOKEN:-}
-    GROQ_API_KEY: ${GROQ_API_KEY:-}
+    # API keys: use env_file above (`airflow/.env`, `../.secrets/.env`). Do not set here with ${VAR:-}
+    # or an empty host env overrides the file and breaks container Scribe / Groq.
     # Alerts (optional): email on failure + Slack webhook
     ALERT_EMAIL: ${ALERT_EMAIL:-}
     SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}

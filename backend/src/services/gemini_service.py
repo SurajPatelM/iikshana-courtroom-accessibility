@@ -8,10 +8,13 @@ see ``gemini_translation.py`` in the same package.
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Dict, Optional
 
 import google.genai as genai
 import os
+
+logger = logging.getLogger("iikshana.services.gemini_service")
 
 
 class GeminiClient:
@@ -44,6 +47,12 @@ class GeminiClient:
             http_options={"api_version": "v1"},
         )
         self._transport = transport
+        logger.debug(
+            "GeminiClient initialized model=%s transport=%s api_key=%s",
+            self._model_name,
+            self._transport,
+            bool(effective_key),
+        )
 
     @property
     def model_name(self) -> str:
@@ -78,6 +87,15 @@ class GeminiClient:
         if system_prompt:
             config["system_instruction"] = system_prompt
 
+        logger.info(
+            "GeminiClient.generate_text: model=%s prompt_length=%d temperature=%s top_p=%s max_output_tokens=%s system_prompt=%s",
+            self._model_name,
+            len(prompt) if prompt is not None else 0,
+            temperature,
+            top_p,
+            max_output_tokens,
+            bool(system_prompt),
+        )
         response = self._client.models.generate_content(
             model=self._model_name,
             contents=prompt,
@@ -97,4 +115,10 @@ class GeminiClient:
         text_parts = [
             part.text for part in candidate.content.parts if getattr(part, "text", "")
         ]
-        return "".join(text_parts).strip()
+        result_text = "".join(text_parts).strip()
+        logger.debug(
+            "GeminiClient.generate_text: candidate_count=%d output_length=%d",
+            len(response.candidates),
+            len(result_text),
+        )
+        return result_text

@@ -116,13 +116,20 @@ def _ref_has_glossary_term(ref: str, term_set: set[str]) -> bool:
 
 
 def _compute_corpus_bleu(references: List[str], hypotheses: List[str]) -> float:
+    r_ok, h_ok = [], []
+    for r, h in zip(references, hypotheses):
+        if str(r or "").strip():
+            r_ok.append(r)
+            h_ok.append(h)
+    if not r_ok:
+        return 0.0
     try:
         import sacrebleu
 
-        return float(sacrebleu.corpus_bleu(hypotheses, [references]).score)
+        return float(sacrebleu.corpus_bleu(h_ok, [r_ok]).score)
     except ImportError:
         scores = []
-        for ref, hyp in zip(references, hypotheses):
+        for ref, hyp in zip(r_ok, h_ok):
             ref_tok = set(str(ref).lower().split())
             hyp_tok = set(str(hyp).lower().split())
             if not ref_tok:
@@ -136,10 +143,17 @@ def _compute_corpus_bleu(references: List[str], hypotheses: List[str]) -> float:
 
 
 def _compute_corpus_chrf(references: List[str], hypotheses: List[str]) -> float:
+    r_ok, h_ok = [], []
+    for r, h in zip(references, hypotheses):
+        if str(r or "").strip():
+            r_ok.append(r)
+            h_ok.append(h)
+    if not r_ok:
+        return 0.0
     try:
         import sacrebleu
 
-        return float(sacrebleu.corpus_chrf(hypotheses, [references]).score)
+        return float(sacrebleu.corpus_chrf(h_ok, [r_ok]).score)
     except ImportError:
         return _compute_corpus_bleu(references, hypotheses)
 
@@ -148,10 +162,13 @@ def _sentence_bleu_scores(references: List[str], hypotheses: List[str]) -> List[
     try:
         import sacrebleu
 
-        return [
-            float(sacrebleu.sentence_bleu(hyp, [ref]).score)
-            for ref, hyp in zip(references, hypotheses)
-        ]
+        out: List[float] = []
+        for ref, hyp in zip(references, hypotheses):
+            if not str(ref or "").strip():
+                out.append(0.0)
+            else:
+                out.append(float(sacrebleu.sentence_bleu(hyp, [ref]).score))
+        return out
     except ImportError:
         n = len(references)
         return [_compute_corpus_bleu([references[i]], [hypotheses[i]]) for i in range(n)]
@@ -161,10 +178,13 @@ def _sentence_chrf_scores(references: List[str], hypotheses: List[str]) -> List[
     try:
         import sacrebleu
 
-        return [
-            float(sacrebleu.sentence_chrf(hyp, [ref]).score)
-            for ref, hyp in zip(references, hypotheses)
-        ]
+        out: List[float] = []
+        for ref, hyp in zip(references, hypotheses):
+            if not str(ref or "").strip():
+                out.append(0.0)
+            else:
+                out.append(float(sacrebleu.sentence_chrf(hyp, [ref]).score))
+        return out
     except Exception:  # noqa: BLE001
         return _sentence_bleu_scores(references, hypotheses)
 

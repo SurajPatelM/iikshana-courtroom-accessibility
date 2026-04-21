@@ -15,7 +15,7 @@ This directory is the **model-development** layer: translation and evaluation on
 | **`config/models/*.yaml`**                       | `id`, `provider` (e.g. `groq`), `model_name`, `system_prompt_id` / `prompt_template_id`, decoding params.                                                                                    |
 | **`prompts/*.txt`**                              | Prompt bodies; placeholders filled by `translate_text`.                                                                                                                                      |
 | **`backend/src/services/gemini_translation.py`** | Loads YAML + prompts; **`translate_text(...)`** calls the provider. Optional kwargs **`temperature`**, **`top_p`**, **`max_output_tokens`** override YAML for sweeps (sensitivity analysis). |
-| **`backend/src/services/groq_stt_service.py`**   | Groq Whisper STT for **`build_translation_inputs_from_audio.py`** (`GROQ_API_KEY`).                                                                                                          |
+| **`backend/src/services/elevenlabs_stt_service.py`** | ElevenLabs **Scribe v2** STT for **`build_translation_inputs_from_audio.py`** and related scripts (`ELEVENLABS_API_KEY`).                                                             |
 | **`model-pipeline/scripts/*.py`**                | Build eval tables, search configs, validate, sensitivity, bias, package, push.                                                                                                               |
 
 ### Translation configs compared (multi-provider)
@@ -31,6 +31,8 @@ These YAMLs live under **`config/models/`**. They extend the original Groq “fl
 
 **Selected default:** On recent dev evals, **`translation_groq_llama70b_v1`** scored highest on corpus **BLEU** versus the other configs above, so it is the **operational default**: `translate_text` in `gemini_translation.py`, **`model_setup.py`**’s default `--config-id`, Airflow **`mode_setup`** (via **`best_config_id`** in `data/processed/<split>/config_search_results.json`, with param fallback), and the expanded config list in the Airflow DAGs. Re-run **`run_config_search.py`** when you add configs or change data; older **`translation_flash_*`** YAMLs remain available for prompt ablations.
 
+**Live expo (Gradio):** [`demo/gradio_expo_app.py`](../demo/gradio_expo_app.py) — ingests via **`process_one`**, then triggers Docker Airflow **`expo_translation_dag`** by default (**build_translation_inputs → mode_setup**, fixed `config_id`; no config search). Set **`AIRFLOW_MODEL_DAG_ID=model_pipeline_dag`** for **build → config search → mode_setup**. Runbook: [`demo/README.md`](../demo/README.md).
+
 ---
 
 ## 2. Model development and ML code
@@ -39,11 +41,11 @@ These YAMLs live under **`config/models/`**. They extend the original Groq “fl
 
 | Script                                               | What it does                                                                                                                                                                                                                                            | Output (default location)                                                                                                                                                            |
 | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **`build_translation_inputs_from_audio.py`**         | Reads **`manifest.json`** + WAVs under `data/processed/<split>/`. Runs **Groq Whisper** STT (`--stt-model`, default `whisper-large-v3-turbo`). Maps **RAVDESS** files to scripted English + Spanish references. Falls back to gold script if STT fails. | **`translation_inputs.csv`** under `data/model_runs/<split>/` (columns include `source_text`, languages, `reference_translation`, often `file`, `dataset`, `speaker_id`, `emotion`). |
+| **`build_translation_inputs_from_audio.py`**         | Reads **`manifest.json`** + WAVs under `data/processed/<split>/`. Runs **ElevenLabs Scribe v2** STT (`--stt-model`, default `scribe_v2`). Maps **RAVDESS** files to scripted English + Spanish references. Falls back to gold script if STT fails. | **`translation_inputs.csv`** under `data/model_runs/<split>/` (columns include `source_text`, languages, `reference_translation`, often `file`, `dataset`, `speaker_id`, `emotion`). |
 | **`build_translation_inputs_from_court_phrases.py`** | Reads **`data/court_phrases.csv`**                                                                                                                                                                                                                      | **`court_translation_inputs.csv`**                                                                                                                                                   |
 | **`build_combined_translation_inputs.py`**           | Merges audio + court tables (optional)                                                                                                                                                                                                                  | **`combined_translation_inputs.csv`** (or similar basename)                                                                                                                          |
 
-**Requirements:** **`GROQ_API_KEY`** for STT and for Groq-backed translation configs. Rate limits (HTTP 429) are possible—increase **`--delay`** between STT calls or reduce **`--max-rows`**.
+**Requirements:** **`ELEVENLABS_API_KEY`** for Scribe STT; **`GROQ_API_KEY`** for Groq-backed translation configs. Rate limits are possible—increase **`--delay`** between STT calls or reduce **`--max-rows`**.
 
 ### 2.2 Core scripts (what each step produces)
 

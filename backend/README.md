@@ -25,7 +25,7 @@ backend/
 │   │   ├── gemini_service.py       # Google Gemini API client (audio, vision, text)
 │   │   ├── gemini_translation.py   # Translation wrapper around Gemini
 │   │   ├── groq_service.py         # Groq API client for text generation
-│   │   ├── groq_stt_service.py     # Groq Whisper client for speech to text
+│   │   ├── elevenlabs_stt_service.py  # ElevenLabs Scribe v2 (batch / pipeline STT)
 │   │   ├── hf_service.py           # Hugging Face Inference API client
 │   │   ├── tts_service.py          # Google Text to Speech with SSML support
 │   │   └── websocket_service.py    # WebSocket service for bidirectional communication
@@ -67,7 +67,7 @@ Each service wraps an external API or communication channel:
 |---------|-------------|
 | `gemini_service.py` | Google Gemini API calls for audio analysis, vision, and text processing |
 | `gemini_translation.py` | Translation specific prompts built on top of the Gemini client |
-| `groq_stt_service.py` | Speech to text via Groq's Whisper endpoint |
+| `elevenlabs_stt_service.py` | Speech to text via ElevenLabs Scribe v2 |
 | `groq_service.py` | General text generation via Groq |
 | `hf_service.py` | Hugging Face Inference API for text generation and translation |
 | `tts_service.py` | Google Text to Speech with SSML for emotional speech output |
@@ -101,7 +101,8 @@ Create a `.env` file in the backend directory (or set these in your shell):
 | Variable | Purpose |
 |----------|---------|
 | `GOOGLE_API_KEY` or `GEMINI_API_KEY` | Google Gemini API access |
-| `GROQ_API_KEY` | Groq API for STT and text generation |
+| `ELEVENLABS_API_KEY` | ElevenLabs API for Scribe v2 speech-to-text (pipeline / eval) |
+| `GROQ_API_KEY` | Groq API for text generation (translation configs with `provider: groq`) |
 | `HF_API_TOKEN` | Hugging Face Inference API |
 | `GOOGLE_APPLICATION_CREDENTIALS` | Path to GCP service account JSON (for TTS) |
 

@@ -7,10 +7,13 @@ compatible with the GeminiClient / GroqClient helpers.
 
 from __future__ import annotations
 
+import logging
 import os
 from typing import Optional
 
 import requests
+
+logger = logging.getLogger("iikshana.services.hf_service")
 
 
 class HuggingFaceClient:
@@ -28,6 +31,12 @@ class HuggingFaceClient:
             )
         self._endpoint = (
             f"https://api-inference.huggingface.co/models/{self._model_name}"
+        )
+        logger.debug(
+            "HuggingFaceClient initialized model=%s api_token=%s endpoint=%s",
+            self._model_name,
+            bool(self._api_token),
+            self._endpoint,
         )
 
     @property
@@ -62,7 +71,21 @@ class HuggingFaceClient:
                 "top_p": top_p,
             },
         }
+        logger.info(
+            "HuggingFaceClient.generate_text: model=%s prompt_length=%d temperature=%s top_p=%s max_output_tokens=%s system_prompt=%s",
+            self._model_name,
+            len(prompt) if prompt is not None else 0,
+            temperature,
+            top_p,
+            max_output_tokens,
+            bool(system_prompt),
+        )
         response = requests.post(self._endpoint, headers=headers, json=payload, timeout=60)
+        logger.debug(
+            "HuggingFace response status=%s headers=%s",
+            response.status_code,
+            {k: response.headers.get(k) for k in ("Content-Type", "x-request-id")},
+        )
         response.raise_for_status()
         data = response.json()
 

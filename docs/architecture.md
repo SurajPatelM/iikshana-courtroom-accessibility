@@ -30,7 +30,7 @@ Microphone / Audio Feed
          │
          ▼
 ┌─────────────────┐
-│  Audio           │  Transcribes speech to text (via Groq Whisper / Gemini)
+│  Audio           │  Transcribes speech to text (via configured STT: e.g. Gemini / cloud STT)
 │  Intelligence    │  Identifies speakers (diarization)
 │  (Agent 1)       │  Detects vocal emotion
 └────────┬────────┘
@@ -106,4 +106,4 @@ The data pipeline and model pipeline are offline evaluation tools. They do not r
 
 ## On Premises Deployment
 
-Iikshana is designed to run entirely on premises inside the court's network. The key principle: no live courtroom audio ever leaves the local machine. The external API calls (Gemini, Groq, TTS) would be replaced with locally hosted models in a production deployment. The current implementation uses cloud APIs for development convenience, but the architecture is structured so that swapping to local inference only requires changing the service layer, not the agent logic.
+Iikshana is designed to run entirely on premises inside the court's network. The key principle: no live courtroom audio ever leaves the local machine. The external API calls (Gemini, Groq, ElevenLabs, TTS) would be replaced with locally hosted models in a production deployment. The current implementation uses cloud APIs for development convenience, but the architecture is structured so that swapping to local inference only requires changing the service layer, not the agent logic.

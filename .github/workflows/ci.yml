@@ -27,6 +27,7 @@ jobs:
               - "scripts/**"
               - "backend/src/services/gemini_translation.py"
               - "backend/src/services/groq_service.py"
+              - "backend/src/services/elevenlabs_stt_service.py"
               - ".github/workflows/ci.yml"
 
   # -------------------------------------------------------

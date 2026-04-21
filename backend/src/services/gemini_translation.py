@@ -8,32 +8,71 @@ simple function for translating text between languages.
 
 from __future__ import annotations
 
+import logging
+import math
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Optional
 
 import yaml
 
+logger = logging.getLogger("iikshana.services.gemini_translation")
+
 from .gemini_service import GeminiClient
 from .groq_service import GroqClient
 from .hf_service import HuggingFaceClient
 
 
-# In Docker containers the repository root is mounted at /workspace. When that
-# path does not exist (e.g. local Python run on the host), fall back to the
-# project root by walking up from backend/src/services to the repo root.
+# Resolve the repo root that contains ``config/`` and ``prompts/``. This needs
+# to work in three layouts:
+#   - Local dev:  <repo>/backend/src/services/gemini_translation.py  -> parents[3]
+#   - Docker (Cloud Run):  /app/src/services/gemini_translation.py    -> parents[2]
+#     (Dockerfile does ``COPY backend/src ./src``, stripping backend/)
+#   - Bind-mounted workspace at /workspace
+# Probe candidates in priority order and pick the first one whose ``config/models``
+# directory actually exists, so misconfigured layouts fail loudly later instead of
+# silently looking at /config (which used to happen because parents[3] of
+# /app/src/services/.../py is /).
 _this_file = Path(__file__).resolve()
-if Path("/workspace").exists():
-    REPO_ROOT = Path("/workspace")
-else:
-    # backend/src/services/gemini_translation.py -> repo root is parents[3]
-    # .../backend/src/services -> parents[0]
-    # .../backend/src         -> parents[1]
-    # .../backend             -> parents[2]
-    # .../                    -> parents[3]
-    REPO_ROOT = _this_file.parents[3]
+_candidate_roots = [
+    Path("/workspace"),
+    Path("/app"),
+    _this_file.parents[3],
+    _this_file.parents[2],
+]
+REPO_ROOT = next(
+    (c for c in _candidate_roots if (c / "config" / "models").is_dir()),
+    _this_file.parents[3],
+)
 CONFIG_DIR = REPO_ROOT / "config" / "models"
 PROMPTS_DIR = REPO_ROOT / "prompts"
+logger.info("gemini_translation: REPO_ROOT=%s CONFIG_DIR=%s", REPO_ROOT, CONFIG_DIR)
+
+# Returned instead of calling the model when there is nothing to translate (always English for UX).
+EMPTY_TRANSCRIPTION_MESSAGE_EN = (
+    "[EMPTY_TRANSCRIPT] No speech text to translate. "
+    "STT returned nothing — check audio, mic level, and ELEVENLABS_API_KEY in this runtime (e.g. Airflow worker)."
+)
+
+
+def _normalize_translation_source(value: object) -> str:
+    """
+    CSV/parquet empty cells often become float NaN; ``str(NaN)`` is ``\"nan\"`` and would bypass empty checks.
+    """
+    if value is None:
+        return ""
+    if isinstance(value, float) and math.isnan(value):
+        return ""
+    s = str(value).strip()
+    if s.lower() in ("nan", "none", "<na>", "nat"):
+        return ""
+    return s
+
+
+def translation_skipped_no_source(source_text: object) -> bool:
+    """True when we should not call the translation API (empty STT or explicit no-speech placeholder)."""
+    s = _normalize_translation_source(source_text)
+    return not s or s.lower() == "(no speech)"
 
 
 @dataclass
@@ -113,11 +152,17 @@ def translate_text(
     Optional ``temperature``, ``top_p``, and ``max_output_tokens`` override the
     YAML config for sweeps and sensitivity analysis.
     """
+    if translation_skipped_no_source(source_text):
+        logger.info(
+            "translate_text: skipping translation because source text is empty or no-speech placeholder"
+        )
+        return EMPTY_TRANSCRIPTION_MESSAGE_EN
 
+    src = _normalize_translation_source(source_text)
     config = _load_model_config(config_id)
     user_template = _load_prompt_template(config.prompt_template_id)
     user_prompt = user_template.format(
-        source_text=source_text,
+        source_text=src,
         source_language=source_language,
         target_language=target_language,
     )
@@ -128,6 +173,14 @@ def translate_text(
     client = _get_text_client(config)
     temp = config.temperature if temperature is None else float(temperature)
     tp = config.top_p if top_p is None else float(top_p)
+    logger.debug(
+        "translate_text: config_id=%s provider=%s model=%s source_language=%s target_language=%s",
+        config_id,
+        config.provider,
+        config.model_name,
+        source_language,
+        target_language,
+    )
     max_tok = (
         config.max_output_tokens
         if max_output_tokens is None
